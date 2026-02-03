@@ -218,6 +218,22 @@ function editPersona(id) {
 }
 
 function openSavePersonaModal() {
+  // If a persona is currently selected, default to editing it
+  const activeEl = personaList.querySelector(".sidebar-item.active");
+  if (activeEl) {
+    const activeId = activeEl.dataset.personaId;
+    const p = personas.find((p) => p._id === activeId);
+    if (p) {
+      editingPersonaId = activeId;
+      personaNameInput.value = p.name;
+      personaModalTitle.textContent = "Update Persona";
+      deletePersonaBtn.style.display = "block";
+      personaModal.classList.add("show");
+      personaNameInput.focus();
+      return;
+    }
+  }
+  // No active persona — create new
   editingPersonaId = null;
   personaNameInput.value = "";
   personaModalTitle.textContent = "Save as Persona";
