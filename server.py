@@ -258,10 +258,30 @@ async def webhook_deploy(request: Request):
     event = request.headers.get("X-GitHub-Event", "")
     payload = json.loads(body)
 
+    # Determine if this is a deploy-worthy event
+    should_deploy = False
+    commit = ""
+    actor = "unknown"
+
     if event == "push" and payload.get("ref") == "refs/heads/main":
+        # Direct push to main
+        should_deploy = True
         commit = payload.get("after", "")[:8]
-        pusher = payload.get("pusher", {}).get("name", "unknown")
-        logger.info(f"Deploy triggered by {pusher} — commit {commit}")
+        actor = payload.get("pusher", {}).get("name", "unknown")
+
+    elif event == "pull_request":
+        pr = payload.get("pull_request", {})
+        action = payload.get("action", "")
+        base = pr.get("base", {}).get("ref", "")
+        merged = pr.get("merged", False)
+        if action == "closed" and merged and base == "main":
+            # PR merged into main
+            should_deploy = True
+            commit = pr.get("merge_commit_sha", "")[:8]
+            actor = payload.get("sender", {}).get("login", "unknown")
+
+    if should_deploy:
+        logger.info(f"Deploy triggered by {actor} — commit {commit}")
 
         # Run deploy in background (return 200 immediately so GitHub doesn't timeout)
         deploy_script = os.path.join(
@@ -273,10 +293,10 @@ async def webhook_deploy(request: Request):
             stdout=open("/tmp/gemini-deploy.log", "a"),
             stderr=subprocess.STDOUT,
         )
-        return {"status": "deploying", "commit": commit, "pusher": pusher}
+        return {"status": "deploying", "commit": commit, "actor": actor}
 
-    # Acknowledge but ignore non-main pushes and other events
-    return {"status": "ignored", "event": event}
+    # Acknowledge but ignore other events
+    return {"status": "ignored", "event": event, "action": payload.get("action", "")}
 
 
 # ---------- WebSocket ----------
