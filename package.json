@@ -1,0 +1,24 @@
+{
+  "name": "gemini-live",
+  "version": "1.0.0",
+  "description": "Minimal test for Google's Gemini Live native audio model via Vertex AI.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Monsoft-Solutions/2026-experiment-gemini-live.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Monsoft-Solutions/2026-experiment-gemini-live/issues"
+  },
+  "homepage": "https://github.com/Monsoft-Solutions/2026-experiment-gemini-live#readme",
+  "dependencies": {
+    "convex": "^1.31.7"
+  }
+}

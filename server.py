@@ -22,75 +22,182 @@ MODEL = os.getenv("MODEL", "gemini-live-2.5-flash-preview-native-audio-09-2025")
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
+# ---------- Built-in function calling tools ----------
+
+TOOL_DECLARATIONS = [
+    {
+        "name": "get_current_time",
+        "description": "Get the current date and time in a given timezone.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "timezone": {
+                    "type": "STRING",
+                    "description": "IANA timezone, e.g. America/New_York. Defaults to UTC.",
+                }
+            },
+        },
+    },
+    {
+        "name": "get_weather",
+        "description": "Get current weather for a city or location.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "location": {
+                    "type": "STRING",
+                    "description": "City name or location, e.g. 'Miami, FL'",
+                }
+            },
+            "required": ["location"],
+        },
+    },
+    {
+        "name": "calculate",
+        "description": "Evaluate a math expression and return the result.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "expression": {
+                    "type": "STRING",
+                    "description": "Math expression to evaluate, e.g. '2 * 3 + 5'",
+                }
+            },
+            "required": ["expression"],
+        },
+    },
+]
+
+
+def execute_tool(name: str, args: dict) -> str:
+    """Execute a built-in tool and return the result as a string."""
+    try:
+        if name == "get_current_time":
+            from datetime import datetime, timezone
+            import zoneinfo
+
+            tz_name = args.get("timezone", "UTC")
+            try:
+                tz = zoneinfo.ZoneInfo(tz_name)
+            except Exception:
+                tz = timezone.utc
+            now = datetime.now(tz)
+            return now.strftime("%A, %B %d, %Y at %I:%M %p %Z")
+
+        elif name == "get_weather":
+            import urllib.request
+
+            location = args.get("location", "")
+            url = f"https://wttr.in/{location.replace(' ', '+')}?format=j1"
+            req = urllib.request.Request(url, headers={"User-Agent": "curl/8.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            current = data.get("current_condition", [{}])[0]
+            desc = current.get("weatherDesc", [{}])[0].get("value", "Unknown")
+            temp_f = current.get("temp_F", "?")
+            temp_c = current.get("temp_C", "?")
+            humidity = current.get("humidity", "?")
+            wind = current.get("windspeedMiles", "?")
+            return f"{desc}, {temp_f}°F ({temp_c}°C), humidity {humidity}%, wind {wind} mph"
+
+        elif name == "calculate":
+            expression = args.get("expression", "")
+            # Safe eval with only math operations
+            allowed = set("0123456789+-*/().% ")
+            if all(c in allowed for c in expression):
+                result = eval(expression)  # noqa: S307
+                return str(result)
+            else:
+                return "Error: expression contains invalid characters"
+
+        return f"Unknown tool: {name}"
+    except Exception as e:
+        return f"Error executing {name}: {str(e)}"
+
+
+# ---------- Routes ----------
+
+VOICES = [
+    {"name": "Zephyr", "style": "Bright"},
+    {"name": "Kore", "style": "Firm"},
+    {"name": "Orus", "style": "Firm"},
+    {"name": "Autonoe", "style": "Bright"},
+    {"name": "Umbriel", "style": "Easy-going"},
+    {"name": "Erinome", "style": "Clear"},
+    {"name": "Laomedeia", "style": "Upbeat"},
+    {"name": "Schedar", "style": "Even"},
+    {"name": "Achird", "style": "Friendly"},
+    {"name": "Sadachbia", "style": "Lively"},
+    {"name": "Puck", "style": "Upbeat"},
+    {"name": "Fenrir", "style": "Excitable"},
+    {"name": "Aoede", "style": "Breezy"},
+    {"name": "Enceladus", "style": "Breathy"},
+    {"name": "Algieba", "style": "Smooth"},
+    {"name": "Algenib", "style": "Gravelly"},
+    {"name": "Achernar", "style": "Soft"},
+    {"name": "Gacrux", "style": "Mature"},
+    {"name": "Zubenelgenubi", "style": "Casual"},
+    {"name": "Sadaltager", "style": "Knowledgeable"},
+    {"name": "Charon", "style": "Informative"},
+    {"name": "Leda", "style": "Youthful"},
+    {"name": "Callirrhoe", "style": "Easy-going"},
+    {"name": "Iapetus", "style": "Clear"},
+    {"name": "Despina", "style": "Smooth"},
+    {"name": "Rasalgethi", "style": "Informative"},
+    {"name": "Alnilam", "style": "Firm"},
+    {"name": "Pulcherrima", "style": "Forward"},
+    {"name": "Vindemiatrix", "style": "Gentle"},
+    {"name": "Sulafat", "style": "Warm"},
+]
+
+LANGUAGES = [
+    {"code": "en-US", "label": "English (US)"},
+    {"code": "en-IN", "label": "English (India)"},
+    {"code": "es-US", "label": "Spanish (US)"},
+    {"code": "fr-FR", "label": "French"},
+    {"code": "de-DE", "label": "German"},
+    {"code": "it-IT", "label": "Italian"},
+    {"code": "pt-BR", "label": "Portuguese (Brazil)"},
+    {"code": "ja-JP", "label": "Japanese"},
+    {"code": "ko-KR", "label": "Korean"},
+    {"code": "ar-EG", "label": "Arabic (Egyptian)"},
+    {"code": "bn-BD", "label": "Bengali"},
+    {"code": "nl-NL", "label": "Dutch"},
+    {"code": "hi-IN", "label": "Hindi"},
+    {"code": "id-ID", "label": "Indonesian"},
+    {"code": "mr-IN", "label": "Marathi"},
+    {"code": "pl-PL", "label": "Polish"},
+    {"code": "ro-RO", "label": "Romanian"},
+    {"code": "ru-RU", "label": "Russian"},
+    {"code": "ta-IN", "label": "Tamil"},
+    {"code": "te-IN", "label": "Telugu"},
+    {"code": "th-TH", "label": "Thai"},
+    {"code": "tr-TR", "label": "Turkish"},
+    {"code": "uk-UA", "label": "Ukrainian"},
+    {"code": "vi-VN", "label": "Vietnamese"},
+]
+
+
+CONVEX_URL = os.getenv("CONVEX_URL", "")
+
 
 @app.get("/")
 async def root():
     return FileResponse("frontend/index.html")
 
 
+@app.get("/convex-url")
+async def convex_url():
+    return {"url": CONVEX_URL}
+
+
 @app.get("/config")
 async def get_config():
-    """Return available voices, languages, and model info for the frontend."""
     return {
         "model": MODEL,
-        "voices": [
-            {"name": "Zephyr", "style": "Bright"},
-            {"name": "Kore", "style": "Firm"},
-            {"name": "Orus", "style": "Firm"},
-            {"name": "Autonoe", "style": "Bright"},
-            {"name": "Umbriel", "style": "Easy-going"},
-            {"name": "Erinome", "style": "Clear"},
-            {"name": "Laomedeia", "style": "Upbeat"},
-            {"name": "Schedar", "style": "Even"},
-            {"name": "Achird", "style": "Friendly"},
-            {"name": "Sadachbia", "style": "Lively"},
-            {"name": "Puck", "style": "Upbeat"},
-            {"name": "Fenrir", "style": "Excitable"},
-            {"name": "Aoede", "style": "Breezy"},
-            {"name": "Enceladus", "style": "Breathy"},
-            {"name": "Algieba", "style": "Smooth"},
-            {"name": "Algenib", "style": "Gravelly"},
-            {"name": "Achernar", "style": "Soft"},
-            {"name": "Gacrux", "style": "Mature"},
-            {"name": "Zubenelgenubi", "style": "Casual"},
-            {"name": "Sadaltager", "style": "Knowledgeable"},
-            {"name": "Charon", "style": "Informative"},
-            {"name": "Leda", "style": "Youthful"},
-            {"name": "Callirrhoe", "style": "Easy-going"},
-            {"name": "Iapetus", "style": "Clear"},
-            {"name": "Despina", "style": "Smooth"},
-            {"name": "Rasalgethi", "style": "Informative"},
-            {"name": "Alnilam", "style": "Firm"},
-            {"name": "Pulcherrima", "style": "Forward"},
-            {"name": "Vindemiatrix", "style": "Gentle"},
-            {"name": "Sulafat", "style": "Warm"},
-        ],
-        "languages": [
-            {"code": "en-US", "label": "English (US)"},
-            {"code": "en-IN", "label": "English (India)"},
-            {"code": "es-US", "label": "Spanish (US)"},
-            {"code": "fr-FR", "label": "French"},
-            {"code": "de-DE", "label": "German"},
-            {"code": "it-IT", "label": "Italian"},
-            {"code": "pt-BR", "label": "Portuguese (Brazil)"},
-            {"code": "ja-JP", "label": "Japanese"},
-            {"code": "ko-KR", "label": "Korean"},
-            {"code": "ar-EG", "label": "Arabic (Egyptian)"},
-            {"code": "bn-BD", "label": "Bengali"},
-            {"code": "nl-NL", "label": "Dutch"},
-            {"code": "hi-IN", "label": "Hindi"},
-            {"code": "id-ID", "label": "Indonesian"},
-            {"code": "mr-IN", "label": "Marathi"},
-            {"code": "pl-PL", "label": "Polish"},
-            {"code": "ro-RO", "label": "Romanian"},
-            {"code": "ru-RU", "label": "Russian"},
-            {"code": "ta-IN", "label": "Tamil"},
-            {"code": "te-IN", "label": "Telugu"},
-            {"code": "th-TH", "label": "Thai"},
-            {"code": "tr-TR", "label": "Turkish"},
-            {"code": "uk-UA", "label": "Ukrainian"},
-            {"code": "vi-VN", "label": "Vietnamese"},
-        ],
+        "voices": VOICES,
+        "languages": LANGUAGES,
+        "tools": [{"name": t["name"], "description": t["description"]} for t in TOOL_DECLARATIONS],
     }
 
 
@@ -109,11 +216,18 @@ async def websocket_endpoint(ws: WebSocket):
     system_prompt = user_config.get("systemPrompt", "")
     affective_dialog = user_config.get("affectiveDialog", False)
     proactive_audio = user_config.get("proactiveAudio", False)
+    google_search = user_config.get("googleSearch", False)
 
     client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
 
     audio_queue = asyncio.Queue()
     text_queue = asyncio.Queue()
+
+    # Build tools list
+    tools_list = []
+    tools_list.append({"function_declarations": TOOL_DECLARATIONS})
+    if google_search:
+        tools_list.append({"google_search": {}})
 
     # Build config
     config_kwargs = {
@@ -126,6 +240,7 @@ async def websocket_endpoint(ws: WebSocket):
         ),
         "input_audio_transcription": types.AudioTranscriptionConfig(),
         "output_audio_transcription": types.AudioTranscriptionConfig(),
+        "tools": tools_list,
     }
 
     if system_prompt:
@@ -189,6 +304,33 @@ async def websocket_endpoint(ws: WebSocket):
                     while True:
                         async for resp in session.receive():
                             sc = resp.server_content
+                            tool_call = resp.tool_call
+
+                            # Handle tool calls
+                            if tool_call:
+                                function_responses = []
+                                for fc in tool_call.function_calls:
+                                    logger.info(f"Tool call: {fc.name}({fc.args})")
+                                    result = execute_tool(fc.name, fc.args or {})
+                                    logger.info(f"Tool result: {result}")
+                                    function_responses.append(
+                                        types.FunctionResponse(
+                                            name=fc.name,
+                                            id=fc.id,
+                                            response={"result": result},
+                                        )
+                                    )
+                                    await ws.send_json({
+                                        "type": "tool_call",
+                                        "name": fc.name,
+                                        "args": fc.args or {},
+                                        "result": result,
+                                    })
+                                await session.send_tool_response(
+                                    function_responses=function_responses
+                                )
+                                continue
+
                             if not sc:
                                 continue
 
@@ -198,10 +340,14 @@ async def websocket_endpoint(ws: WebSocket):
                                         await ws.send_bytes(part.inline_data.data)
 
                             if sc.input_transcription and sc.input_transcription.text:
-                                await ws.send_json({"type": "user", "text": sc.input_transcription.text})
+                                await ws.send_json(
+                                    {"type": "user", "text": sc.input_transcription.text}
+                                )
 
                             if sc.output_transcription and sc.output_transcription.text:
-                                await ws.send_json({"type": "gemini", "text": sc.output_transcription.text})
+                                await ws.send_json(
+                                    {"type": "gemini", "text": sc.output_transcription.text}
+                                )
 
                             if sc.turn_complete:
                                 await ws.send_json({"type": "turn_complete"})
@@ -241,11 +387,14 @@ async def websocket_endpoint(ws: WebSocket):
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.getenv("PORT", "5173"))
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        ssl_keyfile="certs/key.pem",
-        ssl_certfile="certs/cert.pem",
-    )
+    port = int(os.getenv("PORT", "5174"))
+    ssl_key = os.getenv("SSL_KEY")
+    ssl_cert = os.getenv("SSL_CERT")
+
+    kwargs = {"host": "127.0.0.1", "port": port}
+    if ssl_key and ssl_cert:
+        kwargs["ssl_keyfile"] = ssl_key
+        kwargs["ssl_certfile"] = ssl_cert
+        kwargs["host"] = "0.0.0.0"
+
+    uvicorn.run(app, **kwargs)

@@ -1,3 +1,27 @@
+// --- Convex Setup ---
+// Use raw HTTP API since we're vanilla JS without a build step
+let convexUrl = null;
+
+class ConvexAPI {
+  constructor(url) {
+    this.url = url;
+  }
+  async _call(type, name, args = {}) {
+    const res = await fetch(`${this.url}/api/${type}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: name, args, format: "json" }),
+    });
+    if (!res.ok) throw new Error(`Convex ${type} failed: ${res.status}`);
+    const data = await res.json();
+    return data.value;
+  }
+  async query(name, args = {}) { return this._call("query", name, args); }
+  async mutation(name, args = {}) { return this._call("mutation", name, args); }
+}
+
+let convex = null;
+
 // --- DOM ---
 const talkBtn = document.getElementById("talkBtn");
 const statusEl = document.getElementById("status");
@@ -8,10 +32,30 @@ const langSelect = document.getElementById("langSelect");
 const systemPrompt = document.getElementById("systemPrompt");
 const affectiveToggle = document.getElementById("affectiveToggle");
 const proactiveToggle = document.getElementById("proactiveToggle");
+const googleSearchToggle = document.getElementById("googleSearchToggle");
 const modelNameEl = document.getElementById("modelName");
 const textInputRow = document.getElementById("textInputRow");
 const textInput = document.getElementById("textInput");
 const sendBtn = document.getElementById("sendBtn");
+const sidebar = document.getElementById("sidebar");
+const sidebarToggle = document.getElementById("sidebarToggle");
+const personaList = document.getElementById("personaList");
+const historyList = document.getElementById("historyList");
+const savePersonaBtn = document.getElementById("savePersonaBtn");
+const newPersonaBtn = document.getElementById("newPersonaBtn");
+
+// Modals
+const historyModal = document.getElementById("historyModal");
+const closeModal = document.getElementById("closeModal");
+const modalTitle = document.getElementById("modalTitle");
+const modalMeta = document.getElementById("modalMeta");
+const modalMessages = document.getElementById("modalMessages");
+const personaModal = document.getElementById("personaModal");
+const closePersonaModal = document.getElementById("closePersonaModal");
+const personaModalTitle = document.getElementById("personaModalTitle");
+const personaNameInput = document.getElementById("personaNameInput");
+const confirmPersonaBtn = document.getElementById("confirmPersonaBtn");
+const deletePersonaBtn = document.getElementById("deletePersonaBtn");
 
 // --- State ---
 let ws = null;
@@ -23,63 +67,208 @@ let nextStartTime = 0;
 let scheduledSources = [];
 let currentUserDiv = null;
 let currentGeminiDiv = null;
+let currentSessionId = null; // Convex session ID
+let currentUserText = "";
+let currentGeminiText = "";
+let editingPersonaId = null;
+let personas = [];
 
-// --- Init: Load config from server ---
-async function loadConfig() {
+// --- Init ---
+async function init() {
+  await loadServerConfig();
+  await initConvex();
+  await loadPersonas();
+  await loadHistory();
+}
+
+async function loadServerConfig() {
   try {
     const res = await fetch("/config");
     const cfg = await res.json();
-
     modelNameEl.textContent = cfg.model;
-
     voiceSelect.innerHTML = cfg.voices
       .map((v) => `<option value="${v.name}">${v.name} — ${v.style}</option>`)
       .join("");
     voiceSelect.value = "Aoede";
-
     langSelect.innerHTML = cfg.languages
       .map((l) => `<option value="${l.code}">${l.label}</option>`)
       .join("");
     langSelect.value = "en-US";
-
-    // Restore saved settings
-    const saved = localStorage.getItem("gemini-live-settings");
-    if (saved) {
-      try {
-        const s = JSON.parse(saved);
-        if (s.voice) voiceSelect.value = s.voice;
-        if (s.language) langSelect.value = s.language;
-        if (s.systemPrompt) systemPrompt.value = s.systemPrompt;
-        if (s.affectiveDialog) affectiveToggle.checked = s.affectiveDialog;
-        if (s.proactiveAudio) proactiveToggle.checked = s.proactiveAudio;
-      } catch (e) {}
-    }
   } catch (e) {
     console.error("Failed to load config:", e);
   }
 }
 
-function saveSettings() {
-  localStorage.setItem(
-    "gemini-live-settings",
-    JSON.stringify({
-      voice: voiceSelect.value,
-      language: langSelect.value,
-      systemPrompt: systemPrompt.value,
-      affectiveDialog: affectiveToggle.checked,
-      proactiveAudio: proactiveToggle.checked,
-    })
-  );
+async function initConvex() {
+  try {
+    // Fetch the Convex URL from server
+    const res = await fetch("/convex-url");
+    const data = await res.json();
+    convex = new ConvexAPI(data.url);
+  } catch (e) {
+    console.warn("Convex not available, persistence disabled:", e);
+  }
 }
 
-function getSessionConfig() {
-  return {
+// --- Personas ---
+async function loadPersonas() {
+  if (!convex) return;
+  try {
+    personas = await convex.query("personas:list");
+    renderPersonas();
+  } catch (e) {
+    console.error("Failed to load personas:", e);
+  }
+}
+
+function renderPersonas() {
+  personaList.innerHTML = personas.length === 0
+    ? '<div class="sidebar-item"><span class="meta">No personas yet</span></div>'
+    : personas.map((p) => `
+        <div class="sidebar-item" data-persona-id="${p._id}">
+          <span class="name">${p.name}</span>
+          <span class="meta">${p.voice}</span>
+        </div>
+      `).join("");
+
+  personaList.querySelectorAll("[data-persona-id]").forEach((el) => {
+    el.addEventListener("click", () => loadPersona(el.dataset.personaId));
+    el.addEventListener("dblclick", () => editPersona(el.dataset.personaId));
+  });
+}
+
+function loadPersona(id) {
+  const p = personas.find((p) => p._id === id);
+  if (!p) return;
+  voiceSelect.value = p.voice;
+  langSelect.value = p.language;
+  systemPrompt.value = p.systemPrompt;
+  affectiveToggle.checked = p.affectiveDialog;
+  proactiveToggle.checked = p.proactiveAudio;
+  googleSearchToggle.checked = p.googleSearch;
+
+  personaList.querySelectorAll(".sidebar-item").forEach((el) => {
+    el.classList.toggle("active", el.dataset.personaId === id);
+  });
+}
+
+function editPersona(id) {
+  const p = personas.find((p) => p._id === id);
+  if (!p) return;
+  editingPersonaId = id;
+  personaNameInput.value = p.name;
+  personaModalTitle.textContent = "Edit Persona";
+  deletePersonaBtn.style.display = "block";
+  personaModal.classList.add("show");
+}
+
+function openSavePersonaModal() {
+  editingPersonaId = null;
+  personaNameInput.value = "";
+  personaModalTitle.textContent = "Save as Persona";
+  deletePersonaBtn.style.display = "none";
+  personaModal.classList.add("show");
+  personaNameInput.focus();
+}
+
+async function savePersona() {
+  if (!convex) return;
+  const name = personaNameInput.value.trim();
+  if (!name) return;
+
+  const data = {
+    name,
     voice: voiceSelect.value,
     language: langSelect.value,
     systemPrompt: systemPrompt.value.trim(),
     affectiveDialog: affectiveToggle.checked,
     proactiveAudio: proactiveToggle.checked,
+    googleSearch: googleSearchToggle.checked,
   };
+
+  try {
+    if (editingPersonaId) {
+      await convex.mutation("personas:update", { id: editingPersonaId, ...data });
+    } else {
+      await convex.mutation("personas:create", data);
+    }
+    personaModal.classList.remove("show");
+    await loadPersonas();
+  } catch (e) {
+    console.error("Failed to save persona:", e);
+  }
+}
+
+async function deletePersona() {
+  if (!convex || !editingPersonaId) return;
+  try {
+    await convex.mutation("personas:remove", { id: editingPersonaId });
+    personaModal.classList.remove("show");
+    await loadPersonas();
+  } catch (e) {
+    console.error("Failed to delete persona:", e);
+  }
+}
+
+// --- Session History ---
+async function loadHistory() {
+  if (!convex) return;
+  try {
+    const sessions = await convex.query("sessions:list", { limit: 30 });
+    renderHistory(sessions);
+  } catch (e) {
+    console.error("Failed to load history:", e);
+  }
+}
+
+function renderHistory(sessions) {
+  if (sessions.length === 0) {
+    historyList.innerHTML = '<div class="sidebar-item"><span class="meta">No sessions yet</span></div>';
+    return;
+  }
+  historyList.innerHTML = sessions.map((s) => {
+    const date = new Date(s.startedAt);
+    const label = s.personaName || s.settings.voice;
+    const dur = s.duration ? `${Math.floor(s.duration / 60)}m${s.duration % 60}s` : "active";
+    return `
+      <div class="sidebar-item" data-session-id="${s._id}">
+        <span class="name">${label}</span>
+        <span class="meta">${date.toLocaleDateString()} · ${dur}</span>
+      </div>
+    `;
+  }).join("");
+
+  historyList.querySelectorAll("[data-session-id]").forEach((el) => {
+    el.addEventListener("click", () => showSessionDetail(el.dataset.sessionId));
+  });
+}
+
+async function showSessionDetail(id) {
+  if (!convex) return;
+  try {
+    const [session, messages] = await Promise.all([
+      convex.query("sessions:get", { id }),
+      convex.query("sessions:getMessages", { sessionId: id }),
+    ]);
+    if (!session) return;
+
+    const date = new Date(session.startedAt);
+    const dur = session.duration ? `${Math.floor(session.duration / 60)}m ${session.duration % 60}s` : "ongoing";
+    modalTitle.textContent = session.personaName || "Session";
+    modalMeta.innerHTML = `
+      <strong>Date:</strong> ${date.toLocaleString()}<br>
+      <strong>Duration:</strong> ${dur}<br>
+      <strong>Voice:</strong> ${session.settings.voice} · <strong>Language:</strong> ${session.settings.language}<br>
+      ${session.settings.systemPrompt ? `<strong>Prompt:</strong> ${session.settings.systemPrompt.slice(0, 100)}...` : ""}
+    `;
+    modalMessages.innerHTML = messages.length === 0
+      ? "<p>No transcript recorded</p>"
+      : messages.map((m) => `<p class="${m.role}">${m.role === "user" ? "You" : "Gemini"}: ${m.text}</p>`).join("");
+
+    historyModal.classList.add("show");
+  } catch (e) {
+    console.error("Failed to load session:", e);
+  }
 }
 
 // --- Helpers ---
@@ -91,13 +280,27 @@ function setStatus(msg, type = "") {
 function appendMsg(type, text) {
   const p = document.createElement("p");
   p.className = type;
-  p.textContent = `${type === "user" ? "You" : "Gemini"}: ${text}`;
+  p.textContent = `${type === "user" ? "You" : type === "gemini" ? "Gemini" : "🔧"}: ${text}`;
   transcriptEl.appendChild(p);
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
   return p;
 }
 
-// --- Audio Playback (24kHz PCM16 from Gemini) ---
+function getSessionConfig() {
+  const activePersona = personaList.querySelector(".sidebar-item.active");
+  const persona = activePersona ? personas.find((p) => p._id === activePersona.dataset.personaId) : null;
+  return {
+    voice: voiceSelect.value,
+    language: langSelect.value,
+    systemPrompt: systemPrompt.value.trim(),
+    affectiveDialog: affectiveToggle.checked,
+    proactiveAudio: proactiveToggle.checked,
+    googleSearch: googleSearchToggle.checked,
+    _personaName: persona?.name || null,
+  };
+}
+
+// --- Audio Playback (24kHz PCM16) ---
 function playPCM(arrayBuffer) {
   if (!audioCtx) return;
   if (audioCtx.state === "suspended") audioCtx.resume();
@@ -126,9 +329,7 @@ function playPCM(arrayBuffer) {
 }
 
 function stopPlayback() {
-  scheduledSources.forEach((s) => {
-    try { s.stop(); } catch (e) {}
-  });
+  scheduledSources.forEach((s) => { try { s.stop(); } catch (e) {} });
   scheduledSources = [];
   if (audioCtx) nextStartTime = audioCtx.currentTime;
 }
@@ -180,28 +381,58 @@ async function startMic() {
 }
 
 function stopMic() {
-  if (mediaStream) {
-    mediaStream.getTracks().forEach((t) => t.stop());
-    mediaStream = null;
+  if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null; }
+  if (workletNode) { workletNode.disconnect(); workletNode = null; }
+}
+
+// --- Convex session tracking ---
+async function startConvexSession(config) {
+  if (!convex) return;
+  try {
+    const { _personaName, ...settings } = config;
+    currentSessionId = await convex.mutation("sessions:create", {
+      personaName: _personaName || undefined,
+      settings,
+    });
+  } catch (e) {
+    console.error("Failed to create session:", e);
   }
-  if (workletNode) {
-    workletNode.disconnect();
-    workletNode = null;
+}
+
+async function endConvexSession() {
+  if (!convex || !currentSessionId) return;
+  try {
+    await convex.mutation("sessions:end", { id: currentSessionId });
+  } catch (e) {
+    console.error("Failed to end session:", e);
+  }
+  currentSessionId = null;
+}
+
+async function saveMessage(role, text) {
+  if (!convex || !currentSessionId || !text.trim()) return;
+  try {
+    await convex.mutation("sessions:addMessage", {
+      sessionId: currentSessionId,
+      role,
+      text: text.trim(),
+    });
+  } catch (e) {
+    console.error("Failed to save message:", e);
   }
 }
 
 // --- WebSocket ---
 function connect() {
-  saveSettings();
-
+  const config = getSessionConfig();
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(`${proto}//${location.host}/ws`);
   ws.binaryType = "arraybuffer";
 
   ws.onopen = () => {
     setStatus("Sending config...");
-    // Send session config as first message
-    ws.send(JSON.stringify(getSessionConfig()));
+    const { _personaName, ...serverConfig } = config;
+    ws.send(JSON.stringify(serverConfig));
   };
 
   ws.onmessage = async (event) => {
@@ -214,8 +445,8 @@ function connect() {
       const msg = JSON.parse(event.data);
 
       if (msg.type === "session_started") {
-        // Session established, start mic
         setStatus("Session started — starting mic...", "success");
+        await startConvexSession(config);
         try {
           await startMic();
           isConnected = true;
@@ -237,37 +468,57 @@ function connect() {
         return;
       }
 
+      if (msg.type === "tool_call") {
+        appendMsg("tool", `${msg.name}(${JSON.stringify(msg.args)}) → ${msg.result}`);
+        return;
+      }
+
       if (msg.type === "user") {
         if (currentUserDiv) {
-          currentUserDiv.textContent += msg.text;
+          currentUserText += msg.text;
+          currentUserDiv.textContent = "You: " + currentUserText;
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         } else {
+          currentUserText = msg.text;
           currentUserDiv = appendMsg("user", msg.text);
         }
       } else if (msg.type === "gemini") {
         if (currentGeminiDiv) {
-          currentGeminiDiv.textContent += msg.text;
+          currentGeminiText += msg.text;
+          currentGeminiDiv.textContent = "Gemini: " + currentGeminiText;
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         } else {
+          currentGeminiText = msg.text;
           currentGeminiDiv = appendMsg("gemini", msg.text);
         }
       } else if (msg.type === "turn_complete") {
+        // Save completed messages to Convex
+        if (currentUserText) saveMessage("user", currentUserText);
+        if (currentGeminiText) saveMessage("gemini", currentGeminiText);
         currentUserDiv = null;
         currentGeminiDiv = null;
+        currentUserText = "";
+        currentGeminiText = "";
       } else if (msg.type === "interrupted") {
         stopPlayback();
+        if (currentUserText) saveMessage("user", currentUserText);
+        if (currentGeminiText) saveMessage("gemini", currentGeminiText);
         currentUserDiv = null;
         currentGeminiDiv = null;
+        currentUserText = "";
+        currentGeminiText = "";
       }
     } catch (e) {
       console.error("parse error", e);
     }
   };
 
-  ws.onclose = () => {
+  ws.onclose = async () => {
     isConnected = false;
     stopMic();
     stopPlayback();
+    await endConvexSession();
+    await loadHistory();
     settingsPanel.style.display = "";
     textInputRow.classList.remove("visible");
     talkBtn.classList.remove("active");
@@ -286,13 +537,6 @@ function disconnect() {
   stopMic();
   stopPlayback();
   if (ws) ws.close();
-  ws = null;
-  isConnected = false;
-  settingsPanel.style.display = "";
-  textInputRow.classList.remove("visible");
-  talkBtn.classList.remove("active");
-  talkBtn.textContent = "Connect";
-  setStatus("Disconnected");
 }
 
 function sendText() {
@@ -300,24 +544,29 @@ function sendText() {
   if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "text", text }));
   appendMsg("user", text);
+  saveMessage("user", text);
   textInput.value = "";
 }
 
 // --- Events ---
 talkBtn.addEventListener("click", () => {
-  if (isConnected) {
-    disconnect();
-  } else {
-    talkBtn.disabled = true;
-    setStatus("Connecting...");
-    connect();
-  }
+  if (isConnected) { disconnect(); }
+  else { talkBtn.disabled = true; setStatus("Connecting..."); connect(); }
 });
 
 sendBtn.addEventListener("click", sendText);
-textInput.addEventListener("keypress", (e) => {
-  if (e.key === "Enter") sendText();
-});
+textInput.addEventListener("keypress", (e) => { if (e.key === "Enter") sendText(); });
 
-// --- Init ---
-loadConfig();
+sidebarToggle.addEventListener("click", () => sidebar.classList.toggle("hidden"));
+savePersonaBtn.addEventListener("click", openSavePersonaModal);
+newPersonaBtn.addEventListener("click", openSavePersonaModal);
+confirmPersonaBtn.addEventListener("click", savePersona);
+deletePersonaBtn.addEventListener("click", deletePersona);
+closePersonaModal.addEventListener("click", () => personaModal.classList.remove("show"));
+closeModal.addEventListener("click", () => historyModal.classList.remove("show"));
+
+historyModal.addEventListener("click", (e) => { if (e.target === historyModal) historyModal.classList.remove("show"); });
+personaModal.addEventListener("click", (e) => { if (e.target === personaModal) personaModal.classList.remove("show"); });
+
+// --- Start ---
+init();
