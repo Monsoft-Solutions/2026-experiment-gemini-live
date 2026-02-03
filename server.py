@@ -3,23 +3,31 @@ import json
 import logging
 import os
 
+from contextlib import asynccontextmanager
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from google import genai
-from google.genai import types
+
+from providers import get_all_providers, get_provider, init_providers
+from providers.base import EventType, ProviderConfig
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-PROJECT_ID = os.getenv("PROJECT_ID")
-LOCATION = os.getenv("LOCATION", "us-central1")
 MODEL = os.getenv("MODEL", "gemini-live-2.5-flash-preview-native-audio-09-2025")
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_providers()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 # ---------- Built-in function calling tools ----------
@@ -115,40 +123,7 @@ def execute_tool(name: str, args: dict) -> str:
         return f"Error executing {name}: {str(e)}"
 
 
-# ---------- Routes ----------
-
-VOICES = [
-    {"name": "Zephyr", "style": "Bright"},
-    {"name": "Kore", "style": "Firm"},
-    {"name": "Orus", "style": "Firm"},
-    {"name": "Autonoe", "style": "Bright"},
-    {"name": "Umbriel", "style": "Easy-going"},
-    {"name": "Erinome", "style": "Clear"},
-    {"name": "Laomedeia", "style": "Upbeat"},
-    {"name": "Schedar", "style": "Even"},
-    {"name": "Achird", "style": "Friendly"},
-    {"name": "Sadachbia", "style": "Lively"},
-    {"name": "Puck", "style": "Upbeat"},
-    {"name": "Fenrir", "style": "Excitable"},
-    {"name": "Aoede", "style": "Breezy"},
-    {"name": "Enceladus", "style": "Breathy"},
-    {"name": "Algieba", "style": "Smooth"},
-    {"name": "Algenib", "style": "Gravelly"},
-    {"name": "Achernar", "style": "Soft"},
-    {"name": "Gacrux", "style": "Mature"},
-    {"name": "Zubenelgenubi", "style": "Casual"},
-    {"name": "Sadaltager", "style": "Knowledgeable"},
-    {"name": "Charon", "style": "Informative"},
-    {"name": "Leda", "style": "Youthful"},
-    {"name": "Callirrhoe", "style": "Easy-going"},
-    {"name": "Iapetus", "style": "Clear"},
-    {"name": "Despina", "style": "Smooth"},
-    {"name": "Rasalgethi", "style": "Informative"},
-    {"name": "Alnilam", "style": "Firm"},
-    {"name": "Pulcherrima", "style": "Forward"},
-    {"name": "Vindemiatrix", "style": "Gentle"},
-    {"name": "Sulafat", "style": "Warm"},
-]
+# ---------- Languages (shared across providers) ----------
 
 LANGUAGES = [
     {"code": "en-US", "label": "English (US)"},
@@ -181,6 +156,8 @@ LANGUAGES = [
 CONVEX_URL = os.getenv("CONVEX_URL", "")
 
 
+# ---------- Routes ----------
+
 @app.get("/")
 async def root():
     return FileResponse("frontend/index.html")
@@ -193,13 +170,39 @@ async def convex_url():
 
 @app.get("/config")
 async def get_config():
+    providers_out = {}
+    for name, provider in get_all_providers().items():
+        voices = await provider.get_voices()
+        providers_out[name] = provider.to_dict(voices)
+
+    # For backward compatibility, also include top-level voices/model
+    # from the default provider (gemini), so the frontend keeps working
+    # before it's updated to use the providers map.
+    default_voices = []
+    default_model = MODEL
+    try:
+        gemini = get_provider("gemini")
+        default_voices = [
+            {"name": v.id, "style": v.style}
+            for v in await gemini.get_voices()
+        ]
+        default_model = gemini.model
+    except KeyError:
+        pass
+
     return {
-        "model": MODEL,
-        "voices": VOICES,
+        "model": default_model,
+        "voices": default_voices,
         "languages": LANGUAGES,
-        "tools": [{"name": t["name"], "description": t["description"]} for t in TOOL_DECLARATIONS],
+        "tools": [
+            {"name": t["name"], "description": t["description"]}
+            for t in TOOL_DECLARATIONS
+        ],
+        "providers": providers_out,
     }
 
+
+# ---------- WebSocket ----------
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
@@ -211,53 +214,40 @@ async def websocket_endpoint(ws: WebSocket):
     user_config = json.loads(raw)
     logger.info(f"Session config: {user_config}")
 
-    voice_name = user_config.get("voice", "Aoede")
-    language = user_config.get("language", "en-US")
-    system_prompt = user_config.get("systemPrompt", "")
-    affective_dialog = user_config.get("affectiveDialog", False)
-    proactive_audio = user_config.get("proactiveAudio", False)
-    google_search = user_config.get("googleSearch", False)
+    # Determine provider (default to gemini for backward compat)
+    provider_name = user_config.get("provider", "gemini")
+    try:
+        provider = get_provider(provider_name)
+    except KeyError as e:
+        await ws.send_json({"type": "error", "message": str(e)})
+        await ws.close()
+        return
 
-    client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+    # Build provider-agnostic config
+    config = ProviderConfig(
+        voice=user_config.get("voice", "Aoede"),
+        language=user_config.get("language", "en-US"),
+        system_prompt=user_config.get("systemPrompt", ""),
+        tools=TOOL_DECLARATIONS,
+        affective_dialog=user_config.get("affectiveDialog", False),
+        proactive_audio=user_config.get("proactiveAudio", False),
+        google_search=user_config.get("googleSearch", False),
+    )
 
-    audio_queue = asyncio.Queue()
-    text_queue = asyncio.Queue()
-
-    # Build tools list
-    tools_list = []
-    tools_list.append({"function_declarations": TOOL_DECLARATIONS})
-    if google_search:
-        tools_list.append({"google_search": {}})
-
-    # Build config
-    config_kwargs = {
-        "response_modalities": [types.Modality.AUDIO],
-        "speech_config": types.SpeechConfig(
-            voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
-            ),
-            language_code=language,
-        ),
-        "input_audio_transcription": types.AudioTranscriptionConfig(),
-        "output_audio_transcription": types.AudioTranscriptionConfig(),
-        "tools": tools_list,
-    }
-
-    if system_prompt:
-        config_kwargs["system_instruction"] = types.Content(
-            parts=[types.Part(text=system_prompt)]
-        )
-
-    if affective_dialog:
-        config_kwargs["enable_affective_dialog"] = True
-
-    if proactive_audio:
-        config_kwargs["proactivity"] = types.ProactivityConfig(proactive_audio=True)
-
-    config = types.LiveConnectConfig(**config_kwargs)
+    audio_queue: asyncio.Queue[bytes] = asyncio.Queue()
+    text_queue: asyncio.Queue[str] = asyncio.Queue()
 
     try:
-        async with client.aio.live.connect(model=MODEL, config=config) as session:
+        # Use connect_ctx for Gemini (async context manager pattern).
+        # Future providers that don't need a context manager will
+        # implement connect() directly and we'll add a branch here.
+        if hasattr(provider, "connect_ctx"):
+            session_cm = provider.connect_ctx(config)
+        else:
+            # Fallback for providers that implement connect()
+            session_cm = _AsyncCMWrapper(provider, config)
+
+        async with session_cm as session:
             await ws.send_json({"type": "session_started"})
 
             async def recv_from_browser():
@@ -285,9 +275,7 @@ async def websocket_endpoint(ws: WebSocket):
                 try:
                     while True:
                         chunk = await audio_queue.get()
-                        await session.send_realtime_input(
-                            audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
-                        )
+                        await session.send_audio(chunk)
                 except asyncio.CancelledError:
                     pass
 
@@ -295,77 +283,74 @@ async def websocket_endpoint(ws: WebSocket):
                 try:
                     while True:
                         text = await text_queue.get()
-                        await session.send(input=text, end_of_turn=True)
+                        await session.send_text(text)
                 except asyncio.CancelledError:
                     pass
 
-            async def recv_from_gemini():
+            async def recv_from_provider():
                 try:
-                    while True:
-                        async for resp in session.receive():
-                            sc = resp.server_content
-                            tool_call = resp.tool_call
+                    async for event in session.receive():
+                        if event.type == EventType.AUDIO:
+                            await ws.send_bytes(event.data)
 
-                            # Handle tool calls
-                            if tool_call:
-                                function_responses = []
-                                for fc in tool_call.function_calls:
-                                    logger.info(f"Tool call: {fc.name}({fc.args})")
-                                    result = execute_tool(fc.name, fc.args or {})
-                                    logger.info(f"Tool result: {result}")
-                                    function_responses.append(
-                                        types.FunctionResponse(
-                                            name=fc.name,
-                                            id=fc.id,
-                                            response={"result": result},
-                                        )
-                                    )
-                                    await ws.send_json({
-                                        "type": "tool_call",
-                                        "name": fc.name,
-                                        "args": fc.args or {},
-                                        "result": result,
-                                    })
-                                await session.send_tool_response(
-                                    function_responses=function_responses
-                                )
-                                continue
+                        elif event.type == EventType.TRANSCRIPT_USER:
+                            await ws.send_json(
+                                {"type": "user", "text": event.text}
+                            )
 
-                            if not sc:
-                                continue
+                        elif event.type == EventType.TRANSCRIPT_AGENT:
+                            await ws.send_json(
+                                {"type": "gemini", "text": event.text}
+                            )
 
-                            if sc.model_turn:
-                                for part in sc.model_turn.parts:
-                                    if part.inline_data:
-                                        await ws.send_bytes(part.inline_data.data)
+                        elif event.type == EventType.TOOL_CALL:
+                            logger.info(
+                                f"Tool call: {event.tool_name}({event.tool_args})"
+                            )
+                            result = execute_tool(
+                                event.tool_name, event.tool_args or {}
+                            )
+                            logger.info(f"Tool result: {result}")
 
-                            if sc.input_transcription and sc.input_transcription.text:
-                                await ws.send_json(
-                                    {"type": "user", "text": sc.input_transcription.text}
-                                )
+                            # Send result to browser for display
+                            await ws.send_json({
+                                "type": "tool_call",
+                                "name": event.tool_name,
+                                "args": event.tool_args or {},
+                                "result": result,
+                            })
 
-                            if sc.output_transcription and sc.output_transcription.text:
-                                await ws.send_json(
-                                    {"type": "gemini", "text": sc.output_transcription.text}
-                                )
+                            # Send result back to provider
+                            await session.send_tool_result(
+                                tool_id=event.tool_id,
+                                name=event.tool_name,
+                                result=result,
+                            )
 
-                            if sc.turn_complete:
-                                await ws.send_json({"type": "turn_complete"})
+                        elif event.type == EventType.TURN_COMPLETE:
+                            await ws.send_json({"type": "turn_complete"})
 
-                            if sc.interrupted:
-                                await ws.send_json({"type": "interrupted"})
+                        elif event.type == EventType.INTERRUPTED:
+                            await ws.send_json({"type": "interrupted"})
+
+                        elif event.type == EventType.ERROR:
+                            await ws.send_json(
+                                {"type": "error", "message": event.text}
+                            )
 
                 except Exception as e:
-                    logger.error(f"gemini recv error: {e}")
+                    logger.error(f"provider recv error: {e}")
 
             tasks = [
                 asyncio.create_task(recv_from_browser()),
                 asyncio.create_task(send_audio()),
                 asyncio.create_task(send_text()),
-                asyncio.create_task(recv_from_gemini()),
+                asyncio.create_task(recv_from_provider()),
             ]
 
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            done, pending = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED
+            )
             for t in pending:
                 t.cancel()
 
@@ -382,6 +367,24 @@ async def websocket_endpoint(ws: WebSocket):
         pass
 
     logger.info("Session ended")
+
+
+class _AsyncCMWrapper:
+    """Wrap a provider.connect() coroutine as an async context manager."""
+
+    def __init__(self, provider, config):
+        self._provider = provider
+        self._config = config
+        self._session = None
+
+    async def __aenter__(self):
+        self._session = await self._provider.connect(self._config)
+        return self._session
+
+    async def __aexit__(self, *exc):
+        if self._session:
+            await self._session.close()
+        return False
 
 
 if __name__ == "__main__":
