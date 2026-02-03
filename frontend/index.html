@@ -37,6 +37,10 @@
       <div class="settings" id="settingsPanel">
         <div class="settings-grid">
           <div class="setting-group">
+            <label>Provider</label>
+            <select id="providerSelect"></select>
+          </div>
+          <div class="setting-group">
             <label>Voice</label>
             <select id="voiceSelect"></select>
           </div>
@@ -50,21 +54,21 @@
           <textarea id="systemPrompt" placeholder="You are a helpful assistant..." rows="3"></textarea>
         </div>
         <div class="toggles">
-          <label class="toggle-item">
+          <label class="toggle-item gemini-only">
             <input type="checkbox" id="affectiveToggle" />
             Affective Dialog
           </label>
-          <label class="toggle-item">
+          <label class="toggle-item gemini-only">
             <input type="checkbox" id="proactiveToggle" />
             Proactive Audio
           </label>
-          <label class="toggle-item">
+          <label class="toggle-item gemini-only">
             <input type="checkbox" id="googleSearchToggle" />
             Google Search
           </label>
         </div>
         <div class="persona-actions">
-          <button class="btn-sm" id="savePersonaBtn">💾 Save as Persona</button>
+          <button class="btn-sm" id="savePersonaBtn">💾 Save Persona</button>
         </div>
       </div>
 

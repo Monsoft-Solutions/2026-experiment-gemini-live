@@ -164,6 +164,9 @@ class GeminiProvider(VoiceProvider):
     name = "gemini"
     display_name = "Gemini Live"
 
+    # Gemini outputs 24kHz 16-bit PCM mono
+    output_sample_rate = 24000
+
     def __init__(self):
         self._project_id = os.getenv("PROJECT_ID")
         self._location = os.getenv("LOCATION", "us-central1")

@@ -345,7 +345,13 @@ async def websocket_endpoint(ws: WebSocket):
             session_cm = _AsyncCMWrapper(provider, config)
 
         async with session_cm as session:
-            await ws.send_json({"type": "session_started"})
+            # Tell the frontend what sample rate to expect for audio playback
+            output_rate = getattr(provider, "output_sample_rate", 24000)
+            await ws.send_json({
+                "type": "session_started",
+                "provider": provider_name,
+                "outputSampleRate": output_rate,
+            })
 
             async def recv_from_browser():
                 try:

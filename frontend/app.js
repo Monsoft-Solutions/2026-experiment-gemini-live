@@ -27,6 +27,7 @@ const talkBtn = document.getElementById("talkBtn");
 const statusEl = document.getElementById("status");
 const transcriptEl = document.getElementById("transcript");
 const settingsPanel = document.getElementById("settingsPanel");
+const providerSelect = document.getElementById("providerSelect");
 const voiceSelect = document.getElementById("voiceSelect");
 const langSelect = document.getElementById("langSelect");
 const systemPrompt = document.getElementById("systemPrompt");
@@ -72,6 +73,8 @@ let currentUserText = "";
 let currentGeminiText = "";
 let editingPersonaId = null;
 let personas = [];
+let providersConfig = {}; // { name: { displayName, voices[], outputSampleRate } }
+let playbackSampleRate = 24000; // Default, overridden per provider on session start
 
 // --- Init ---
 async function init() {
@@ -86,16 +89,68 @@ async function loadServerConfig() {
     const res = await fetch("/config");
     const cfg = await res.json();
     modelNameEl.textContent = cfg.model;
-    voiceSelect.innerHTML = cfg.voices
-      .map((v) => `<option value="${v.name}">${v.name} — ${v.style}</option>`)
-      .join("");
-    voiceSelect.value = "Aoede";
+
+    // Store providers config
+    providersConfig = cfg.providers || {};
+
+    // Populate provider dropdown
+    const providerNames = Object.keys(providersConfig);
+    if (providerNames.length > 0) {
+      providerSelect.innerHTML = providerNames
+        .map((name) => {
+          const p = providersConfig[name];
+          return `<option value="${name}">${p.displayName}</option>`;
+        })
+        .join("");
+      providerSelect.value = providerNames.includes("gemini") ? "gemini" : providerNames[0];
+      providerSelect.addEventListener("change", onProviderChange);
+    } else {
+      providerSelect.innerHTML = '<option value="gemini">Gemini Live</option>';
+    }
+
+    // Populate voices for selected provider
+    updateVoicesForProvider();
+
+    // Languages (shared across providers)
     langSelect.innerHTML = cfg.languages
       .map((l) => `<option value="${l.code}">${l.label}</option>`)
       .join("");
     langSelect.value = "en-US";
   } catch (e) {
     console.error("Failed to load config:", e);
+  }
+}
+
+function onProviderChange() {
+  updateVoicesForProvider();
+  // Update UI hints based on provider
+  const provider = providerSelect.value;
+  const cfg = providersConfig[provider];
+  if (cfg) {
+    modelNameEl.textContent = cfg.displayName;
+    // Toggle Gemini-specific options visibility
+    const isGemini = provider === "gemini";
+    document.querySelectorAll(".gemini-only").forEach((el) => {
+      el.style.display = isGemini ? "" : "none";
+    });
+  }
+}
+
+function updateVoicesForProvider() {
+  const provider = providerSelect.value;
+  const cfg = providersConfig[provider];
+  if (!cfg || !cfg.voices) return;
+
+  voiceSelect.innerHTML = cfg.voices
+    .map((v) => `<option value="${v.id}">${v.name} — ${v.style}</option>`)
+    .join("");
+
+  // Select a sensible default
+  if (provider === "gemini") {
+    const aoede = cfg.voices.find((v) => v.id === "Aoede");
+    if (aoede) voiceSelect.value = aoede.id;
+  } else if (cfg.voices.length > 0) {
+    voiceSelect.value = cfg.voices[0].id;
   }
 }
 
@@ -163,6 +218,22 @@ function editPersona(id) {
 }
 
 function openSavePersonaModal() {
+  // If a persona is currently selected, default to editing it
+  const activeEl = personaList.querySelector(".sidebar-item.active");
+  if (activeEl) {
+    const activeId = activeEl.dataset.personaId;
+    const p = personas.find((p) => p._id === activeId);
+    if (p) {
+      editingPersonaId = activeId;
+      personaNameInput.value = p.name;
+      personaModalTitle.textContent = "Update Persona";
+      deletePersonaBtn.style.display = "block";
+      personaModal.classList.add("show");
+      personaNameInput.focus();
+      return;
+    }
+  }
+  // No active persona — create new
   editingPersonaId = null;
   personaNameInput.value = "";
   personaModalTitle.textContent = "Save as Persona";
@@ -277,10 +348,16 @@ function setStatus(msg, type = "") {
   statusEl.className = type;
 }
 
+function getProviderLabel() {
+  const cfg = providersConfig[providerSelect.value];
+  return cfg?.displayName || "AI";
+}
+
 function appendMsg(type, text) {
   const p = document.createElement("p");
   p.className = type;
-  p.textContent = `${type === "user" ? "You" : type === "gemini" ? "Gemini" : "🔧"}: ${text}`;
+  const label = type === "user" ? "You" : type === "gemini" ? getProviderLabel() : "🔧";
+  p.textContent = `${label}: ${text}`;
   transcriptEl.appendChild(p);
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
   return p;
@@ -290,6 +367,7 @@ function getSessionConfig() {
   const activePersona = personaList.querySelector(".sidebar-item.active");
   const persona = activePersona ? personas.find((p) => p._id === activePersona.dataset.personaId) : null;
   return {
+    provider: providerSelect.value,
     voice: voiceSelect.value,
     language: langSelect.value,
     systemPrompt: systemPrompt.value.trim(),
@@ -309,7 +387,7 @@ function playPCM(arrayBuffer) {
   const float32 = new Float32Array(pcm.length);
   for (let i = 0; i < pcm.length; i++) float32[i] = pcm[i] / 32768.0;
 
-  const buffer = audioCtx.createBuffer(1, float32.length, 24000);
+  const buffer = audioCtx.createBuffer(1, float32.length, playbackSampleRate);
   buffer.getChannelData(0).set(float32);
 
   const source = audioCtx.createBufferSource();
@@ -389,7 +467,7 @@ function stopMic() {
 async function startConvexSession(config) {
   if (!convex) return;
   try {
-    const { _personaName, ...settings } = config;
+    const { _personaName, provider, ...settings } = config;
     currentSessionId = await convex.mutation("sessions:create", {
       personaName: _personaName || undefined,
       settings,
@@ -445,6 +523,8 @@ function connect() {
       const msg = JSON.parse(event.data);
 
       if (msg.type === "session_started") {
+        // Set playback sample rate from server (provider-specific)
+        playbackSampleRate = msg.outputSampleRate || 24000;
         setStatus("Session started — starting mic...", "success");
         await startConvexSession(config);
         try {

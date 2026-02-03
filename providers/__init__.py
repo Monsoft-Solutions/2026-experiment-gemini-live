@@ -60,10 +60,16 @@ def init_providers() -> None:
     #     from providers.openai_rt import OpenAIRealtimeProvider
     #     register_provider(OpenAIRealtimeProvider())
 
-    # Future: ElevenLabs
-    # if os.getenv("ELEVENLABS_API_KEY"):
-    #     from providers.elevenlabs import ElevenLabsProvider
-    #     register_provider(ElevenLabsProvider())
+    # ElevenLabs Conversational AI
+    if os.getenv("ELEVENLABS_API_KEY") and os.getenv("ELEVENLABS_AGENT_ID"):
+        try:
+            from providers.elevenlabs import ElevenLabsProvider
+
+            register_provider(ElevenLabsProvider())
+        except Exception as e:
+            logger.warning(f"Failed to init ElevenLabs provider: {e}")
+    else:
+        logger.info("Skipping ElevenLabs provider (ELEVENLABS_API_KEY or ELEVENLABS_AGENT_ID not set)")
 
     if not _registry:
         logger.warning("No voice providers registered! Check environment variables.")
