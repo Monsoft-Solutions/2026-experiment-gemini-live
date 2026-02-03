@@ -6,9 +6,9 @@ Wants=caddy.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/.openclaw/workspace/experiments/gemini-live
-EnvironmentFile=/root/.openclaw/workspace/experiments/gemini-live/.env
-ExecStart=/root/.openclaw/workspace/experiments/gemini-live/.venv/bin/python server.py
+WorkingDirectory=/root/projects/gemini-live
+EnvironmentFile=/root/projects/gemini-live/.env
+ExecStart=/root/projects/gemini-live/.venv/bin/python server.py
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -18,7 +18,7 @@ SyslogIdentifier=gemini-live
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/root/.openclaw/workspace/experiments/gemini-live /tmp
+ReadWritePaths=/root/projects/gemini-live /tmp
 PrivateTmp=true
 
 [Install]
