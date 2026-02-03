@@ -299,26 +299,72 @@ class ElevenLabsProvider(VoiceProvider):
             additional_headers={"xi-api-key": self._api_key},
         )
 
-        # Send conversation initiation with config overrides
-        initiation = {
+        # Build conversation initiation data.
+        # ElevenLabs agents can restrict which fields are overridable
+        # in their security settings. We attempt overrides and fall back
+        # gracefully if they're rejected.
+        initiation: dict = {
             "type": "conversation_initiation_client_data",
-            "conversation_config_override": {
-                "agent": {
-                    "language": config.language[:2],  # ElevenLabs uses ISO 639-1
-                },
-                "tts": {
-                    "voice_id": config.voice,
-                },
-            },
         }
 
-        # Override system prompt if provided
-        if config.system_prompt:
-            initiation["conversation_config_override"]["agent"]["prompt"] = {
-                "prompt": config.system_prompt,
-            }
+        # Only send overrides if we have something to override
+        overrides: dict = {}
+        agent_override: dict = {}
 
-        await ws.send(json.dumps(initiation))
+        if config.language:
+            agent_override["language"] = config.language[:2]
+
+        if config.system_prompt:
+            agent_override["prompt"] = {"prompt": config.system_prompt}
+
+        if agent_override:
+            overrides["agent"] = agent_override
+
+        if config.voice:
+            overrides["tts"] = {"voice_id": config.voice}
+
+        if overrides:
+            initiation["conversation_config_override"] = overrides
+
+        try:
+            await ws.send(json.dumps(initiation))
+        except Exception as e:
+            logger.error(f"Failed to send initiation: {e}")
+            await ws.close()
+            raise
+
+        # Wait briefly for the metadata response to check for rejection
+        try:
+            raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
+            first_msg = json.loads(raw)
+
+            if first_msg.get("type") == "conversation_initiation_metadata":
+                event = first_msg.get("conversation_initiation_metadata_event", {})
+                conversation_id = event.get("conversation_id")
+                session = ElevenLabsSession(ws, config, conversation_id)
+                logger.info(
+                    f"ElevenLabs session opened (agent={self._agent_id}, "
+                    f"voice={config.voice}, lang={config.language}, "
+                    f"conv={conversation_id})"
+                )
+                return session
+            else:
+                # Unexpected first message — might be an error
+                logger.warning(
+                    f"ElevenLabs unexpected first message: {first_msg.get('type')}"
+                )
+        except asyncio.TimeoutError:
+            logger.warning("ElevenLabs: no metadata response within 5s")
+        except websockets.exceptions.ConnectionClosed as e:
+            # Override was rejected — retry without overrides
+            logger.warning(f"ElevenLabs rejected overrides: {e.reason}")
+            ws = await websockets.connect(
+                ws_url,
+                additional_headers={"xi-api-key": self._api_key},
+            )
+            # Send bare initiation without overrides
+            bare_init = {"type": "conversation_initiation_client_data"}
+            await ws.send(json.dumps(bare_init))
 
         session = ElevenLabsSession(ws, config)
         logger.info(
