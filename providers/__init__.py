@@ -55,10 +55,16 @@ def init_providers() -> None:
     else:
         logger.info("Skipping Gemini provider (PROJECT_ID not set)")
 
-    # Future: OpenAI
-    # if os.getenv("OPENAI_API_KEY"):
-    #     from providers.openai_rt import OpenAIRealtimeProvider
-    #     register_provider(OpenAIRealtimeProvider())
+    # OpenAI Realtime
+    if os.getenv("OPENAI_API_KEY"):
+        try:
+            from providers.openai_rt import OpenAIRealtimeProvider
+
+            register_provider(OpenAIRealtimeProvider())
+        except Exception as e:
+            logger.warning(f"Failed to init OpenAI Realtime provider: {e}")
+    else:
+        logger.info("Skipping OpenAI Realtime provider (OPENAI_API_KEY not set)")
 
     # ElevenLabs Conversational AI
     if os.getenv("ELEVENLABS_API_KEY") and os.getenv("ELEVENLABS_AGENT_ID"):

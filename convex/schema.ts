@@ -4,6 +4,7 @@ import { v } from "convex/values";
 export default defineSchema({
   personas: defineTable({
     name: v.string(),
+    provider: v.optional(v.string()), // "gemini" | "openai" | "elevenlabs" — optional for backward compat
     voice: v.string(),
     language: v.string(),
     systemPrompt: v.string(),
@@ -17,6 +18,7 @@ export default defineSchema({
   sessions: defineTable({
     personaName: v.optional(v.string()),
     settings: v.object({
+      provider: v.optional(v.string()), // "gemini" | "openai" | "elevenlabs" — optional for backward compat
       voice: v.string(),
       language: v.string(),
       systemPrompt: v.string(),

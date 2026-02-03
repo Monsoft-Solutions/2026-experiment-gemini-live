@@ -179,12 +179,16 @@ async function loadPersonas() {
 function renderPersonas() {
   personaList.innerHTML = personas.length === 0
     ? '<div class="sidebar-item"><span class="meta">No personas yet</span></div>'
-    : personas.map((p) => `
+    : personas.map((p) => {
+        const providerLabel = p.provider ? (providersConfig[p.provider]?.displayName || p.provider) : "";
+        const meta = providerLabel ? `${providerLabel} · ${p.voice}` : p.voice;
+        return `
         <div class="sidebar-item" data-persona-id="${p._id}">
           <span class="name">${p.name}</span>
-          <span class="meta">${p.voice}</span>
+          <span class="meta">${meta}</span>
         </div>
-      `).join("");
+      `;
+      }).join("");
 
   personaList.querySelectorAll("[data-persona-id]").forEach((el) => {
     el.addEventListener("click", () => loadPersona(el.dataset.personaId));
@@ -195,6 +199,12 @@ function renderPersonas() {
 function loadPersona(id) {
   const p = personas.find((p) => p._id === id);
   if (!p) return;
+
+  // Set provider first (if stored), then update voices, then set voice
+  if (p.provider && providersConfig[p.provider]) {
+    providerSelect.value = p.provider;
+    onProviderChange();
+  }
   voiceSelect.value = p.voice;
   langSelect.value = p.language;
   systemPrompt.value = p.systemPrompt;
@@ -249,6 +259,7 @@ async function savePersona() {
 
   const data = {
     name,
+    provider: providerSelect.value,
     voice: voiceSelect.value,
     language: langSelect.value,
     systemPrompt: systemPrompt.value.trim(),
@@ -299,7 +310,9 @@ function renderHistory(sessions) {
   }
   historyList.innerHTML = sessions.map((s) => {
     const date = new Date(s.startedAt);
-    const label = s.personaName || s.settings.voice;
+    const provTag = s.settings.provider && s.settings.provider !== "gemini"
+      ? `[${s.settings.provider}] ` : "";
+    const label = provTag + (s.personaName || s.settings.voice);
     const dur = s.duration ? `${Math.floor(s.duration / 60)}m${s.duration % 60}s` : "active";
     return `
       <div class="sidebar-item" data-session-id="${s._id}">
@@ -326,15 +339,18 @@ async function showSessionDetail(id) {
     const date = new Date(session.startedAt);
     const dur = session.duration ? `${Math.floor(session.duration / 60)}m ${session.duration % 60}s` : "ongoing";
     modalTitle.textContent = session.personaName || "Session";
+    const providerName = session.settings.provider
+      ? (providersConfig[session.settings.provider]?.displayName || session.settings.provider)
+      : "Gemini";
     modalMeta.innerHTML = `
       <strong>Date:</strong> ${date.toLocaleString()}<br>
       <strong>Duration:</strong> ${dur}<br>
-      <strong>Voice:</strong> ${session.settings.voice} · <strong>Language:</strong> ${session.settings.language}<br>
+      <strong>Provider:</strong> ${providerName} · <strong>Voice:</strong> ${session.settings.voice} · <strong>Language:</strong> ${session.settings.language}<br>
       ${session.settings.systemPrompt ? `<strong>Prompt:</strong> ${session.settings.systemPrompt.slice(0, 100)}...` : ""}
     `;
     modalMessages.innerHTML = messages.length === 0
       ? "<p>No transcript recorded</p>"
-      : messages.map((m) => `<p class="${m.role}">${m.role === "user" ? "You" : "Gemini"}: ${m.text}</p>`).join("");
+      : messages.map((m) => `<p class="${m.role}">${m.role === "user" ? "You" : providerName}: ${m.text}</p>`).join("");
 
     historyModal.classList.add("show");
   } catch (e) {
@@ -467,7 +483,7 @@ function stopMic() {
 async function startConvexSession(config) {
   if (!convex) return;
   try {
-    const { _personaName, provider, ...settings } = config;
+    const { _personaName, ...settings } = config;
     currentSessionId = await convex.mutation("sessions:create", {
       personaName: _personaName || undefined,
       settings,
@@ -565,7 +581,7 @@ function connect() {
       } else if (msg.type === "gemini") {
         if (currentGeminiDiv) {
           currentGeminiText += msg.text;
-          currentGeminiDiv.textContent = "Gemini: " + currentGeminiText;
+          currentGeminiDiv.textContent = getProviderLabel() + ": " + currentGeminiText;
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         } else {
           currentGeminiText = msg.text;

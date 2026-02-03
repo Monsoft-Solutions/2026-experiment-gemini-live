@@ -24,6 +24,7 @@ export const create = mutation({
   args: {
     personaName: v.optional(v.string()),
     settings: v.object({
+      provider: v.optional(v.string()),
       voice: v.string(),
       language: v.string(),
       systemPrompt: v.string(),
