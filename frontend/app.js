@@ -2,6 +2,16 @@
 const talkBtn = document.getElementById("talkBtn");
 const statusEl = document.getElementById("status");
 const transcriptEl = document.getElementById("transcript");
+const settingsPanel = document.getElementById("settingsPanel");
+const voiceSelect = document.getElementById("voiceSelect");
+const langSelect = document.getElementById("langSelect");
+const systemPrompt = document.getElementById("systemPrompt");
+const affectiveToggle = document.getElementById("affectiveToggle");
+const proactiveToggle = document.getElementById("proactiveToggle");
+const modelNameEl = document.getElementById("modelName");
+const textInputRow = document.getElementById("textInputRow");
+const textInput = document.getElementById("textInput");
+const sendBtn = document.getElementById("sendBtn");
 
 // --- State ---
 let ws = null;
@@ -14,6 +24,64 @@ let scheduledSources = [];
 let currentUserDiv = null;
 let currentGeminiDiv = null;
 
+// --- Init: Load config from server ---
+async function loadConfig() {
+  try {
+    const res = await fetch("/config");
+    const cfg = await res.json();
+
+    modelNameEl.textContent = cfg.model;
+
+    voiceSelect.innerHTML = cfg.voices
+      .map((v) => `<option value="${v.name}">${v.name} — ${v.style}</option>`)
+      .join("");
+    voiceSelect.value = "Aoede";
+
+    langSelect.innerHTML = cfg.languages
+      .map((l) => `<option value="${l.code}">${l.label}</option>`)
+      .join("");
+    langSelect.value = "en-US";
+
+    // Restore saved settings
+    const saved = localStorage.getItem("gemini-live-settings");
+    if (saved) {
+      try {
+        const s = JSON.parse(saved);
+        if (s.voice) voiceSelect.value = s.voice;
+        if (s.language) langSelect.value = s.language;
+        if (s.systemPrompt) systemPrompt.value = s.systemPrompt;
+        if (s.affectiveDialog) affectiveToggle.checked = s.affectiveDialog;
+        if (s.proactiveAudio) proactiveToggle.checked = s.proactiveAudio;
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.error("Failed to load config:", e);
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem(
+    "gemini-live-settings",
+    JSON.stringify({
+      voice: voiceSelect.value,
+      language: langSelect.value,
+      systemPrompt: systemPrompt.value,
+      affectiveDialog: affectiveToggle.checked,
+      proactiveAudio: proactiveToggle.checked,
+    })
+  );
+}
+
+function getSessionConfig() {
+  return {
+    voice: voiceSelect.value,
+    language: langSelect.value,
+    systemPrompt: systemPrompt.value.trim(),
+    affectiveDialog: affectiveToggle.checked,
+    proactiveAudio: proactiveToggle.checked,
+  };
+}
+
 // --- Helpers ---
 function setStatus(msg, type = "") {
   statusEl.textContent = msg;
@@ -23,7 +91,7 @@ function setStatus(msg, type = "") {
 function appendMsg(type, text) {
   const p = document.createElement("p");
   p.className = type;
-  p.textContent = text;
+  p.textContent = `${type === "user" ? "You" : "Gemini"}: ${text}`;
   transcriptEl.appendChild(p);
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
   return p;
@@ -58,12 +126,14 @@ function playPCM(arrayBuffer) {
 }
 
 function stopPlayback() {
-  scheduledSources.forEach((s) => { try { s.stop(); } catch (e) {} });
+  scheduledSources.forEach((s) => {
+    try { s.stop(); } catch (e) {}
+  });
   scheduledSources = [];
   if (audioCtx) nextStartTime = audioCtx.currentTime;
 }
 
-// --- Mic Capture (downsample to 16kHz PCM16) ---
+// --- Mic Capture ---
 function downsample(buffer, fromRate, toRate) {
   if (fromRate === toRate) return buffer;
   const ratio = fromRate / toRate;
@@ -103,7 +173,6 @@ async function startMic() {
   };
 
   source.connect(workletNode);
-  // mute local feedback
   const mute = audioCtx.createGain();
   mute.gain.value = 0;
   workletNode.connect(mute);
@@ -123,61 +192,87 @@ function stopMic() {
 
 // --- WebSocket ---
 function connect() {
+  saveSettings();
+
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(`${proto}//${location.host}/ws`);
   ws.binaryType = "arraybuffer";
 
-  ws.onopen = async () => {
-    setStatus("Connected — starting mic...", "success");
-    try {
-      await startMic();
-      isConnected = true;
-      talkBtn.classList.add("active");
-      talkBtn.textContent = "Disconnect";
-      setStatus("Listening... speak now!", "success");
-    } catch (err) {
-      setStatus("Mic error: " + err.message, "error");
-      ws.close();
-    }
+  ws.onopen = () => {
+    setStatus("Sending config...");
+    // Send session config as first message
+    ws.send(JSON.stringify(getSessionConfig()));
   };
 
-  ws.onmessage = (event) => {
+  ws.onmessage = async (event) => {
     if (event.data instanceof ArrayBuffer) {
       playPCM(event.data);
-    } else {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === "user") {
-          if (currentUserDiv) {
-            currentUserDiv.textContent += msg.text;
-          } else {
-            currentUserDiv = appendMsg("user", "You: " + msg.text);
-          }
-        } else if (msg.type === "gemini") {
-          if (currentGeminiDiv) {
-            currentGeminiDiv.textContent += msg.text;
-          } else {
-            currentGeminiDiv = appendMsg("gemini", "Gemini: " + msg.text);
-          }
-        } else if (msg.type === "turn_complete") {
-          currentUserDiv = null;
-          currentGeminiDiv = null;
-        } else if (msg.type === "interrupted") {
-          stopPlayback();
-          currentUserDiv = null;
-          currentGeminiDiv = null;
+      return;
+    }
+
+    try {
+      const msg = JSON.parse(event.data);
+
+      if (msg.type === "session_started") {
+        // Session established, start mic
+        setStatus("Session started — starting mic...", "success");
+        try {
+          await startMic();
+          isConnected = true;
+          settingsPanel.style.display = "none";
+          textInputRow.classList.add("visible");
+          talkBtn.classList.add("active");
+          talkBtn.textContent = "Disconnect";
+          talkBtn.disabled = false;
+          setStatus("Listening... speak now!", "success");
+        } catch (err) {
+          setStatus("Mic error: " + err.message, "error");
+          ws.close();
         }
-      } catch (e) {
-        console.error("parse error", e);
+        return;
       }
+
+      if (msg.type === "error") {
+        setStatus("Error: " + msg.message, "error");
+        return;
+      }
+
+      if (msg.type === "user") {
+        if (currentUserDiv) {
+          currentUserDiv.textContent += msg.text;
+          transcriptEl.scrollTop = transcriptEl.scrollHeight;
+        } else {
+          currentUserDiv = appendMsg("user", msg.text);
+        }
+      } else if (msg.type === "gemini") {
+        if (currentGeminiDiv) {
+          currentGeminiDiv.textContent += msg.text;
+          transcriptEl.scrollTop = transcriptEl.scrollHeight;
+        } else {
+          currentGeminiDiv = appendMsg("gemini", msg.text);
+        }
+      } else if (msg.type === "turn_complete") {
+        currentUserDiv = null;
+        currentGeminiDiv = null;
+      } else if (msg.type === "interrupted") {
+        stopPlayback();
+        currentUserDiv = null;
+        currentGeminiDiv = null;
+      }
+    } catch (e) {
+      console.error("parse error", e);
     }
   };
 
   ws.onclose = () => {
     isConnected = false;
     stopMic();
+    stopPlayback();
+    settingsPanel.style.display = "";
+    textInputRow.classList.remove("visible");
     talkBtn.classList.remove("active");
     talkBtn.textContent = "Connect";
+    talkBtn.disabled = false;
     setStatus("Disconnected");
   };
 
@@ -193,12 +288,22 @@ function disconnect() {
   if (ws) ws.close();
   ws = null;
   isConnected = false;
+  settingsPanel.style.display = "";
+  textInputRow.classList.remove("visible");
   talkBtn.classList.remove("active");
   talkBtn.textContent = "Connect";
   setStatus("Disconnected");
 }
 
-// --- Button ---
+function sendText() {
+  const text = textInput.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "text", text }));
+  appendMsg("user", text);
+  textInput.value = "";
+}
+
+// --- Events ---
 talkBtn.addEventListener("click", () => {
   if (isConnected) {
     disconnect();
@@ -206,6 +311,13 @@ talkBtn.addEventListener("click", () => {
     talkBtn.disabled = true;
     setStatus("Connecting...");
     connect();
-    talkBtn.disabled = false;
   }
 });
+
+sendBtn.addEventListener("click", sendText);
+textInput.addEventListener("keypress", (e) => {
+  if (e.key === "Enter") sendText();
+});
+
+// --- Init ---
+loadConfig();
