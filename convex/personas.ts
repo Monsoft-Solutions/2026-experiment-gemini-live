@@ -17,6 +17,7 @@ export const get = query({
 export const create = mutation({
   args: {
     name: v.string(),
+    provider: v.optional(v.string()),
     voice: v.string(),
     language: v.string(),
     systemPrompt: v.string(),
@@ -38,6 +39,7 @@ export const update = mutation({
   args: {
     id: v.id("personas"),
     name: v.string(),
+    provider: v.optional(v.string()),
     voice: v.string(),
     language: v.string(),
     systemPrompt: v.string(),
