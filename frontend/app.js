@@ -451,7 +451,7 @@ function stopMic() {
 async function startConvexSession(config) {
   if (!convex) return;
   try {
-    const { _personaName, ...settings } = config;
+    const { _personaName, provider, ...settings } = config;
     currentSessionId = await convex.mutation("sessions:create", {
       personaName: _personaName || undefined,
       settings,
