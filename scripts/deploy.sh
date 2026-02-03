@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_DIR="/root/.openclaw/workspace/experiments/gemini-live"
+APP_DIR="/root/projects/gemini-live"
 SERVICE="gemini-live"
 LOG_TAG="gemini-deploy"
 
