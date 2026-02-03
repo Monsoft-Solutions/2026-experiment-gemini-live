@@ -151,7 +151,7 @@ class VoiceProvider(ABC):
     def to_dict(self, voices: list[ProviderVoice] | None = None) -> dict:
         """Serialize provider info for the /config endpoint."""
         voice_list = voices or []
-        return {
+        d = {
             "name": self.name,
             "displayName": self.display_name,
             "voices": [
@@ -159,3 +159,7 @@ class VoiceProvider(ABC):
                 for v in voice_list
             ],
         }
+        # Include output sample rate if the provider declares one
+        if hasattr(self, "output_sample_rate"):
+            d["outputSampleRate"] = self.output_sample_rate
+        return d

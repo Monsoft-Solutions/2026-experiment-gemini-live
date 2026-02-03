@@ -7,4 +7,13 @@ service-account.json
 certs/
 node_modules/
 
-.env.local
+# OpenClaw workspace files
+AGENTS.md
+SOUL.md
+TOOLS.md
+IDENTITY.md
+USER.md
+HEARTBEAT.md
+BOOTSTRAP.md
+scripts/gh-wrapper.sh
+scripts/github-app-token.py
