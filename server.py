@@ -1,13 +1,17 @@
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
+import subprocess
+import time
 
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from providers import get_all_providers, get_provider, init_providers
@@ -19,6 +23,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 MODEL = os.getenv("MODEL", "gemini-live-2.5-flash-preview-native-audio-09-2025")
+WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+
+_start_time = time.time()
 
 
 @asynccontextmanager
@@ -200,6 +207,76 @@ async def get_config():
         ],
         "providers": providers_out,
     }
+
+
+# ---------- Health ----------
+
+@app.get("/health")
+async def health():
+    """Health check endpoint — returns status, providers, commit, uptime."""
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(__file__) or ".",
+            text=True,
+            timeout=5,
+        ).strip()
+    except Exception:
+        commit = "unknown"
+
+    return {
+        "status": "ok",
+        "providers": list(get_all_providers().keys()),
+        "commit": commit,
+        "uptime_seconds": round(time.time() - _start_time),
+    }
+
+
+# ---------- Webhook Deploy ----------
+
+@app.post("/webhook/deploy")
+async def webhook_deploy(request: Request):
+    """GitHub App webhook handler — auto-deploy on push to main."""
+    if not WEBHOOK_SECRET:
+        logger.warning("Webhook received but GITHUB_WEBHOOK_SECRET not configured")
+        return JSONResponse(
+            {"error": "webhook not configured"}, status_code=503
+        )
+
+    # Verify signature
+    body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    expected = "sha256=" + hmac.new(
+        WEBHOOK_SECRET.encode(), body, hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(signature, expected):
+        logger.warning("Webhook rejected — invalid signature")
+        return JSONResponse({"error": "invalid signature"}, status_code=403)
+
+    # Parse event
+    event = request.headers.get("X-GitHub-Event", "")
+    payload = json.loads(body)
+
+    if event == "push" and payload.get("ref") == "refs/heads/main":
+        commit = payload.get("after", "")[:8]
+        pusher = payload.get("pusher", {}).get("name", "unknown")
+        logger.info(f"Deploy triggered by {pusher} — commit {commit}")
+
+        # Run deploy in background (return 200 immediately so GitHub doesn't timeout)
+        deploy_script = os.path.join(
+            os.path.dirname(__file__) or ".", "scripts", "deploy.sh"
+        )
+        subprocess.Popen(
+            ["bash", deploy_script],
+            cwd=os.path.dirname(__file__) or ".",
+            stdout=open("/tmp/gemini-deploy.log", "a"),
+            stderr=subprocess.STDOUT,
+        )
+        return {"status": "deploying", "commit": commit, "pusher": pusher}
+
+    # Acknowledge but ignore non-main pushes and other events
+    return {"status": "ignored", "event": event}
 
 
 # ---------- WebSocket ----------
