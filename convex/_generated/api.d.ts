@@ -8,7 +8,10 @@
  * @module
  */
 
+import type * as adminSettings from "../adminSettings.js";
+import type * as calls from "../calls.js";
 import type * as personas from "../personas.js";
+import type * as phoneNumbers from "../phoneNumbers.js";
 import type * as sessions from "../sessions.js";
 
 import type {
@@ -18,7 +21,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  adminSettings: typeof adminSettings;
+  calls: typeof calls;
   personas: typeof personas;
+  phoneNumbers: typeof phoneNumbers;
   sessions: typeof sessions;
 }>;
 

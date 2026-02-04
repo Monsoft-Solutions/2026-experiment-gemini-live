@@ -156,8 +156,48 @@ select { cursor: pointer; }
 .modal-body { margin-bottom: 1rem; }
 .modal-footer { display: flex; justify-content: space-between; gap: 0.5rem; }
 
+/* Sidebar footer */
+.sidebar-footer {
+  padding: 0.75rem 1rem; border-top: 1px solid #1a1a1a;
+  margin-top: auto;
+}
+
+/* Admin modal — larger */
+.modal-lg { max-width: 650px; }
+.modal-body h4 { font-size: 0.8rem; color: #888; margin-bottom: 0.5rem; margin-top: 0.5rem; }
+.modal-body hr { border: none; border-top: 1px solid #222; }
+
+input[type="password"] {
+  width: 100%; padding: 0.5rem 0.65rem;
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
+  color: #e0e0e0; font-size: 0.8rem; font-family: inherit;
+  outline: none; transition: border-color 0.2s;
+}
+input[type="password"]:focus { border-color: #4285f4; }
+
+/* Phone number rows */
+.phone-number-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.5rem 0.65rem; background: #0a0a0a; border-radius: 6px;
+  margin-bottom: 0.4rem; font-size: 0.8rem; gap: 0.5rem;
+}
+.phone-number-row strong { color: #e0e0e0; }
+.phone-number-row .meta { font-size: 0.65rem; color: #555; display: block; }
+.persona-link-select {
+  width: auto; min-width: 140px; padding: 0.3rem 0.5rem; font-size: 0.7rem;
+}
+
+/* Badge */
+.badge { font-size: 0.6rem; }
+.badge.active { color: #34a853; }
+
+/* Call history styles */
+.modal-messages .caller { color: #f9ab00; }
+.modal-messages .agent { color: #81c995; }
+
 @media (max-width: 768px) {
   .sidebar { position: absolute; z-index: 10; height: 100%; }
   .sidebar.hidden { transform: translateX(-260px); }
   .settings-grid { grid-template-columns: 1fr; }
+  .phone-number-row { flex-direction: column; align-items: flex-start; }
 }

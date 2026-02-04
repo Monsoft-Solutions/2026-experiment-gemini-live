@@ -664,5 +664,227 @@ closeModal.addEventListener("click", () => historyModal.classList.remove("show")
 historyModal.addEventListener("click", (e) => { if (e.target === historyModal) historyModal.classList.remove("show"); });
 personaModal.addEventListener("click", (e) => { if (e.target === personaModal) personaModal.classList.remove("show"); });
 
+// --- Admin / Twilio ---
+const adminBtn = document.getElementById("adminBtn");
+const adminModal = document.getElementById("adminModal");
+const closeAdminModal = document.getElementById("closeAdminModal");
+const saveTwilioConfigBtn = document.getElementById("saveTwilioConfigBtn");
+const twilioConfigStatus = document.getElementById("twilioConfigStatus");
+const refreshNumbersBtn = document.getElementById("refreshNumbersBtn");
+const phoneNumbersList = document.getElementById("phoneNumbersList");
+const callHistoryList = document.getElementById("callHistoryList");
+const callModal = document.getElementById("callModal");
+const closeCallModal = document.getElementById("closeCallModal");
+const callModalTitle = document.getElementById("callModalTitle");
+const callModalMeta = document.getElementById("callModalMeta");
+const callModalMessages = document.getElementById("callModalMessages");
+
+adminBtn.addEventListener("click", async () => {
+  adminModal.classList.add("show");
+  await loadTwilioConfig();
+  await loadPhoneNumbers();
+});
+closeAdminModal.addEventListener("click", () => adminModal.classList.remove("show"));
+adminModal.addEventListener("click", (e) => { if (e.target === adminModal) adminModal.classList.remove("show"); });
+closeCallModal.addEventListener("click", () => callModal.classList.remove("show"));
+callModal.addEventListener("click", (e) => { if (e.target === callModal) callModal.classList.remove("show"); });
+
+async function loadTwilioConfig() {
+  try {
+    const res = await fetch("/twilio/config");
+    const cfg = await res.json();
+    if (cfg.configured) {
+      document.getElementById("twilioAccountSid").value = cfg.accountSid || "";
+      document.getElementById("twilioAuthToken").placeholder = cfg.authToken || "Auth token";
+      document.getElementById("twilioWebhookUrl").value = cfg.webhookBaseUrl || "";
+      twilioConfigStatus.textContent = "✅ Configured";
+    } else {
+      twilioConfigStatus.textContent = "Not configured";
+    }
+  } catch (e) {
+    twilioConfigStatus.textContent = "Failed to load config";
+  }
+}
+
+saveTwilioConfigBtn.addEventListener("click", async () => {
+  const accountSid = document.getElementById("twilioAccountSid").value.trim();
+  const authToken = document.getElementById("twilioAuthToken").value.trim();
+  const webhookBaseUrl = document.getElementById("twilioWebhookUrl").value.trim();
+
+  if (!accountSid) { twilioConfigStatus.textContent = "Account SID required"; return; }
+
+  const body = { accountSid, webhookBaseUrl };
+  if (authToken) body.authToken = authToken; // Only send if changed
+
+  try {
+    const res = await fetch("/twilio/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      twilioConfigStatus.textContent = "✅ Saved!";
+      document.getElementById("twilioAuthToken").value = "";
+      await loadTwilioConfig();
+    } else {
+      twilioConfigStatus.textContent = "Failed to save";
+    }
+  } catch (e) {
+    twilioConfigStatus.textContent = "Error: " + e.message;
+  }
+});
+
+refreshNumbersBtn.addEventListener("click", loadPhoneNumbers);
+
+async function loadPhoneNumbers() {
+  phoneNumbersList.innerHTML = '<div class="meta">Loading...</div>';
+  try {
+    const res = await fetch("/twilio/numbers");
+    if (!res.ok) {
+      const err = await res.json();
+      phoneNumbersList.innerHTML = `<div class="meta">⚠️ ${err.error || "Failed to load"}</div>`;
+      return;
+    }
+    const numbers = await res.json();
+    if (numbers.length === 0) {
+      phoneNumbersList.innerHTML = '<div class="meta">No phone numbers found</div>';
+      return;
+    }
+    phoneNumbersList.innerHTML = numbers.map((n) => `
+      <div class="phone-number-row" data-sid="${n.twilioSid}" data-phone="${n.phoneNumber}">
+        <div>
+          <strong>${n.friendlyName || n.phoneNumber}</strong>
+          ${n.friendlyName ? `<span class="meta">${n.phoneNumber}</span>` : ""}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <select class="persona-link-select" data-sid="${n.twilioSid}">
+            <option value="">— Not linked —</option>
+            ${personas.map((p) => `<option value="${p._id}" ${n.personaId === p._id ? "selected" : ""}>${p.name}</option>`).join("")}
+          </select>
+          ${n.linked
+            ? `<span class="badge active">●</span><button class="btn-sm danger unlink-btn" data-link-id="${n.linkId}">Unlink</button>`
+            : `<button class="btn-sm primary link-btn" data-sid="${n.twilioSid}" data-phone="${n.phoneNumber}" data-name="${n.friendlyName || ""}">Link</button>`
+          }
+        </div>
+      </div>
+    `).join("");
+
+    // Link button handlers
+    phoneNumbersList.querySelectorAll(".link-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const row = btn.closest(".phone-number-row");
+        const select = row.querySelector(".persona-link-select");
+        const personaId = select.value;
+        if (!personaId) { alert("Select a persona first"); return; }
+        await linkNumber(btn.dataset.phone, btn.dataset.sid, personaId, btn.dataset.name);
+      });
+    });
+
+    // Unlink button handlers
+    phoneNumbersList.querySelectorAll(".unlink-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        await unlinkNumber(btn.dataset.linkId);
+      });
+    });
+  } catch (e) {
+    phoneNumbersList.innerHTML = `<div class="meta">Error: ${e.message}</div>`;
+  }
+}
+
+async function linkNumber(phoneNumber, twilioSid, personaId, friendlyName) {
+  try {
+    const res = await fetch("/twilio/numbers/link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phoneNumber, twilioSid, personaId, friendlyName }),
+    });
+    if (res.ok) {
+      await loadPhoneNumbers();
+    } else {
+      const err = await res.json();
+      alert("Link failed: " + (err.error || "Unknown error"));
+    }
+  } catch (e) {
+    alert("Error: " + e.message);
+  }
+}
+
+async function unlinkNumber(linkId) {
+  try {
+    const res = await fetch("/twilio/numbers/unlink", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ linkId }),
+    });
+    if (res.ok) {
+      await loadPhoneNumbers();
+    }
+  } catch (e) {
+    alert("Error: " + e.message);
+  }
+}
+
+// --- Call History ---
+async function loadCallHistory() {
+  try {
+    const res = await fetch("/twilio/calls?limit=20");
+    if (!res.ok) return;
+    const calls = await res.json();
+    if (!calls || calls.length === 0) {
+      callHistoryList.innerHTML = '<div class="sidebar-item"><span class="meta">No calls yet</span></div>';
+      return;
+    }
+    callHistoryList.innerHTML = calls.map((c) => {
+      const date = new Date(c.startedAt);
+      const dur = c.duration ? `${Math.floor(c.duration / 60)}m${c.duration % 60}s` : c.status;
+      const label = c.personaName || c.to;
+      return `
+        <div class="sidebar-item" data-call-id="${c._id}">
+          <span class="name">📞 ${c.from}</span>
+          <span class="meta">${label} · ${date.toLocaleDateString()} · ${dur}</span>
+        </div>
+      `;
+    }).join("");
+
+    callHistoryList.querySelectorAll("[data-call-id]").forEach((el) => {
+      el.addEventListener("click", () => showCallDetail(el.dataset.callId));
+    });
+  } catch (e) {
+    console.error("Failed to load call history:", e);
+  }
+}
+
+async function showCallDetail(callId) {
+  try {
+    const res = await fetch(`/twilio/calls/${callId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const call = data.call;
+    const messages = data.messages || [];
+
+    const date = new Date(call.startedAt);
+    const dur = call.duration ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : call.status;
+    callModalTitle.textContent = `Call from ${call.from}`;
+    callModalMeta.innerHTML = `
+      <strong>Date:</strong> ${date.toLocaleString()}<br>
+      <strong>Duration:</strong> ${dur}<br>
+      <strong>To:</strong> ${call.to} · <strong>Status:</strong> ${call.status}<br>
+      <strong>Agent:</strong> ${call.personaName || "—"} (${call.provider || "—"})<br>
+      ${call.transcript ? `<strong>Transcript:</strong><br><em>${call.transcript}</em>` : ""}
+    `;
+    callModalMessages.innerHTML = messages.length === 0
+      ? "<p>No turn-by-turn transcript</p>"
+      : messages.map((m) => `<p class="${m.role}">${m.role === "caller" ? "📞 Caller" : "🤖 Agent"}: ${m.text}</p>`).join("");
+
+    callModal.classList.add("show");
+  } catch (e) {
+    console.error("Failed to load call:", e);
+  }
+}
+
 // --- Start ---
-init();
+async function initAll() {
+  await init();
+  await loadCallHistory();
+}
+initAll();

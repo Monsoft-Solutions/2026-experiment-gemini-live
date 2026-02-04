@@ -23,6 +23,15 @@
         </div>
         <div id="historyList" class="sidebar-list"></div>
       </div>
+      <div class="sidebar-section">
+        <div class="sidebar-header">
+          <h3>📞 Phone Calls</h3>
+        </div>
+        <div id="callHistoryList" class="sidebar-list"></div>
+      </div>
+      <div class="sidebar-footer">
+        <button class="btn-sm" id="adminBtn">⚙️ Admin</button>
+      </div>
     </aside>
 
     <!-- Main content -->
@@ -114,6 +123,52 @@
             <button class="btn-sm danger" id="deletePersonaBtn" style="display:none">Delete</button>
             <button class="btn-sm primary" id="confirmPersonaBtn">Save</button>
           </div>
+        </div>
+      </div>
+      <!-- Admin modal -->
+      <div class="modal-overlay" id="adminModal">
+        <div class="modal modal-lg">
+          <div class="modal-header">
+            <h3>⚙️ Admin Settings</h3>
+            <button class="icon-btn" id="closeAdminModal">✕</button>
+          </div>
+          <div class="modal-body">
+            <!-- Twilio Config -->
+            <h4>Twilio Configuration</h4>
+            <div class="setting-group">
+              <label>Account SID</label>
+              <input type="text" id="twilioAccountSid" placeholder="AC..." />
+            </div>
+            <div class="setting-group">
+              <label>Auth Token</label>
+              <input type="password" id="twilioAuthToken" placeholder="Auth token" />
+            </div>
+            <div class="setting-group">
+              <label>Webhook Base URL</label>
+              <input type="text" id="twilioWebhookUrl" placeholder="https://your-domain.com" />
+            </div>
+            <button class="btn-sm primary" id="saveTwilioConfigBtn">Save Twilio Config</button>
+            <div id="twilioConfigStatus" class="meta" style="margin-top:8px"></div>
+
+            <hr style="margin:16px 0;border-color:#333" />
+
+            <!-- Phone Numbers -->
+            <h4>Phone Numbers</h4>
+            <div id="phoneNumbersList"></div>
+            <button class="btn-sm" id="refreshNumbersBtn" style="margin-top:8px">🔄 Refresh from Twilio</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Call detail modal -->
+      <div class="modal-overlay" id="callModal">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 id="callModalTitle">Call Detail</h3>
+            <button class="icon-btn" id="closeCallModal">✕</button>
+          </div>
+          <div class="modal-meta" id="callModalMeta"></div>
+          <div class="modal-messages" id="callModalMessages"></div>
         </div>
       </div>
     </main>
