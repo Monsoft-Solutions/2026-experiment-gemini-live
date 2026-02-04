@@ -3,14 +3,18 @@ import { Menu, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useServerConfig } from "@/hooks/use-server-config";
+import { useConversationStore } from "@/features/conversation/stores/conversation-store";
+import { cn } from "@/lib/utils";
 import type { CallRecord, Persona, Session } from "@/types";
 import { Sidebar } from "./sidebar";
 
 interface MainLayoutProps {
   personas: Persona[];
+  personasLoading?: boolean;
   activePersonaId: string | null;
   sessions: Session[];
   calls: CallRecord[];
+  sessionsLoading?: boolean;
   onSelectPersona: (persona: Persona) => void;
   onEditPersona: (persona: Persona) => void;
   onNewPersona: () => void;
@@ -22,9 +26,11 @@ interface MainLayoutProps {
 
 export function MainLayout({
   personas,
+  personasLoading,
   activePersonaId,
   sessions,
   calls,
+  sessionsLoading,
   onSelectPersona,
   onEditPersona,
   onNewPersona,
@@ -36,14 +42,18 @@ export function MainLayout({
   const config = useServerConfig();
   const providers = config.data?.providers ?? {};
   const [mobileOpen, setMobileOpen] = useState(false);
+  const connectionStatus = useConversationStore((s) => s.status);
+  const isConnected = connectionStatus === "connected";
 
   const sidebarContent = (
     <Sidebar
       personas={personas}
+      personasLoading={personasLoading}
       activePersonaId={activePersonaId}
       providers={providers}
       sessions={sessions}
       calls={calls}
+      sessionsLoading={sessionsLoading}
       onSelectPersona={onSelectPersona}
       onEditPersona={onEditPersona}
       onNewPersona={onNewPersona}
@@ -68,7 +78,14 @@ export function MainLayout({
       {/* Main area */}
       <main className="flex flex-1 flex-col overflow-y-auto" aria-label="Conversation area">
         {/* Header */}
-        <div className="sticky top-0 z-10 border-b border-border bg-background/80 px-4 py-3 backdrop-blur-sm">
+        <div
+          className={cn(
+            "sticky top-0 z-10 border-b px-4 py-3 backdrop-blur-sm transition-colors duration-500",
+            isConnected
+              ? "border-primary/30 bg-primary/5"
+              : "border-border bg-background/80",
+          )}
+        >
           <div className="mx-auto flex max-w-xl items-center">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
@@ -83,7 +100,13 @@ export function MainLayout({
               </SheetTrigger>
             </Sheet>
             <div className="flex items-center gap-2">
-              <Mic className="size-4 text-primary" aria-hidden="true" />
+              <Mic
+                className={cn(
+                  "size-4 transition-colors duration-500",
+                  isConnected ? "text-primary" : "text-muted-foreground",
+                )}
+                aria-hidden="true"
+              />
               <h1 className="text-lg font-semibold">Gemini Live</h1>
             </div>
             {config.data?.model && (
@@ -95,7 +118,7 @@ export function MainLayout({
         </div>
 
         {/* Content */}
-        <div className="mx-auto w-full max-w-xl flex-1 px-4 py-6">
+        <div className="mx-auto flex w-full max-w-xl flex-1 flex-col px-4 py-6">
           {children}
         </div>
       </main>

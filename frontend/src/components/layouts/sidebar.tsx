@@ -9,9 +9,11 @@ import { SessionList } from "@/features/sessions/components/session-list";
 
 interface SidebarProps {
   personas: Persona[];
+  personasLoading?: boolean;
   activePersonaId: string | null;
   providers: Record<string, ProviderConfig>;
   sessions: Session[];
+  sessionsLoading?: boolean;
   calls: CallRecord[];
   onSelectPersona: (persona: Persona) => void;
   onEditPersona: (persona: Persona) => void;
@@ -23,9 +25,11 @@ interface SidebarProps {
 
 export function Sidebar({
   personas,
+  personasLoading,
   activePersonaId,
   providers,
   sessions,
+  sessionsLoading,
   calls,
   onSelectPersona,
   onEditPersona,
@@ -58,6 +62,7 @@ export function Sidebar({
           </div>
           <PersonaList
             personas={personas}
+            loading={personasLoading}
             activeId={activePersonaId}
             providers={providers}
             onSelect={onSelectPersona}
@@ -74,6 +79,7 @@ export function Sidebar({
           </h3>
           <SessionList
             sessions={sessions}
+            loading={sessionsLoading}
             providers={providers}
             onSelect={onSelectSession}
           />

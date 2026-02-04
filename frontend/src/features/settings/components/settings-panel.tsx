@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { SettingsPanelSkeleton } from "@/components/shared/skeletons";
 import { useServerConfig } from "@/hooks/use-server-config";
 import { useSettingsStore } from "../stores/settings-store";
 
@@ -33,8 +34,13 @@ export function SettingsPanel() {
     }
   }, [providerKeys, providers, settings]);
 
+  // Show skeleton while loading
+  if (config.isLoading) {
+    return <SettingsPanelSkeleton />;
+  }
+
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+    <div className="space-y-4 rounded-lg border border-border bg-card p-4 transition-all duration-300 animate-in fade-in">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {/* Provider */}
         <div className="space-y-1.5">
