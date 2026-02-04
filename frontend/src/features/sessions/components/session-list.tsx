@@ -1,20 +1,34 @@
+import { Clock } from "lucide-react";
+import { SessionListSkeleton } from "@/components/shared/skeletons";
 import type { Session, ProviderConfig } from "@/types";
 
 interface SessionListProps {
   sessions: Session[];
+  loading?: boolean;
   providers: Record<string, ProviderConfig>;
   onSelect: (session: Session) => void;
 }
 
 export function SessionList({
   sessions,
+  loading,
   providers: _providers,
   onSelect,
 }: SessionListProps) {
-  void _providers; // used by parent for future provider labels
+  void _providers;
+
+  if (loading) {
+    return <SessionListSkeleton />;
+  }
+
   if (sessions.length === 0) {
     return (
-      <p className="px-2 text-xs text-muted-foreground">No sessions yet</p>
+      <div className="flex flex-col items-center gap-2 py-6 text-center">
+        <Clock className="size-8 text-muted-foreground/40" />
+        <p className="text-xs text-muted-foreground">
+          Your conversation history will appear here
+        </p>
+      </div>
     );
   }
 

@@ -1,3 +1,4 @@
+import { Wifi, WifiOff, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConversationStore } from "../stores/conversation-store";
 
@@ -5,20 +6,35 @@ export function ConnectionStatus() {
   const status = useConversationStore((s) => s.status);
   const message = useConversationStore((s) => s.statusMessage);
 
+  const Icon =
+    status === "connected"
+      ? Wifi
+      : status === "connecting"
+        ? Loader2
+        : status === "error"
+          ? AlertCircle
+          : WifiOff;
+
   return (
-    <div aria-live="polite" aria-atomic="true" className="mt-3 min-h-[1.25rem]">
+    <div aria-live="polite" aria-atomic="true" className="mt-4 min-h-[1.5rem]">
       {message && (
-        <p
+        <div
           className={cn(
-            "text-center text-xs",
-            status === "error" && "text-red-400",
-            status === "connected" && "text-green-400",
-            (status === "idle" || status === "connecting") &&
-              "text-muted-foreground",
+            "flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium transition-all duration-300",
+            status === "error" && "bg-red-500/10 text-red-400",
+            status === "connected" && "bg-primary/10 text-primary",
+            status === "connecting" && "bg-muted text-muted-foreground",
+            status === "idle" && "text-muted-foreground",
           )}
         >
+          <Icon
+            className={cn(
+              "size-3.5",
+              status === "connecting" && "animate-spin",
+            )}
+          />
           {message}
-        </p>
+        </div>
       )}
     </div>
   );

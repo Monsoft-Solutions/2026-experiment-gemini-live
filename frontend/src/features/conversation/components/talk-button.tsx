@@ -1,3 +1,4 @@
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConversationStore } from "../stores/conversation-store";
 
@@ -18,19 +19,37 @@ export function TalkButton({ onConnect, onDisconnect }: TalkButtonProps) {
       : "Connect to voice conversation";
 
   return (
-    <button
-      onClick={isConnected ? onDisconnect : onConnect}
-      disabled={isConnecting}
-      aria-label={ariaLabel}
-      className={cn(
-        "size-[100px] rounded-full border-[3px] text-sm font-semibold transition-all duration-300",
-        "cursor-pointer disabled:cursor-not-allowed disabled:opacity-40",
-        isConnected
-          ? "border-red-500 bg-red-500/10 text-red-400 motion-safe:animate-pulse"
-          : "border-border bg-card text-muted-foreground hover:border-primary hover:text-primary",
+    <div className="relative flex items-center justify-center">
+      {/* Pulsing ring when connected */}
+      {isConnected && (
+        <div className="absolute size-[120px] rounded-full border-2 border-primary/40 motion-safe:animate-ping" />
       )}
-    >
-      {isConnected ? "Disconnect" : isConnecting ? "..." : "Connect"}
-    </button>
+      {/* Glow ring when connected */}
+      {isConnected && (
+        <div className="absolute size-[110px] rounded-full bg-primary/10 motion-safe:animate-pulse" />
+      )}
+      <button
+        onClick={isConnected ? onDisconnect : onConnect}
+        disabled={isConnecting}
+        aria-label={ariaLabel}
+        className={cn(
+          "relative z-10 flex size-[100px] items-center justify-center rounded-full border-[3px] text-sm font-semibold transition-all duration-500",
+          "cursor-pointer disabled:cursor-not-allowed disabled:opacity-40",
+          isConnected
+            ? "border-red-500 bg-red-500/10 text-red-400 shadow-lg shadow-red-500/20 hover:bg-red-500/20"
+            : isConnecting
+              ? "border-primary/50 bg-primary/5 text-primary"
+              : "border-border bg-card text-muted-foreground hover:border-primary hover:text-primary hover:shadow-lg hover:shadow-primary/10",
+        )}
+      >
+        {isConnecting ? (
+          <Loader2 className="size-6 animate-spin" />
+        ) : isConnected ? (
+          "Disconnect"
+        ) : (
+          "Connect"
+        )}
+      </button>
+    </div>
   );
 }

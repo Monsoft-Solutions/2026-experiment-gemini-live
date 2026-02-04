@@ -24,8 +24,8 @@ import type { CallRecord, Persona, Session } from "@/types";
 export function App() {
   const config = useServerConfig();
   const providers = config.data?.providers ?? {};
-  const { data: personas = [] } = usePersonas();
-  const { data: sessions = [] } = useSessions();
+  const { data: personas = [], isLoading: personasLoading } = usePersonas();
+  const { data: sessions = [], isLoading: sessionsLoading } = useSessions();
   const { data: calls = [] } = useCallHistory();
   const queryClient = useQueryClient();
 
@@ -150,14 +150,17 @@ export function App() {
   }, []);
 
   const isConnected = connectionStatus === "connected";
+  const isConnecting = connectionStatus === "connecting";
 
   return (
     <>
       <MainLayout
         personas={personas}
+        personasLoading={personasLoading}
         activePersonaId={activePersonaId}
         sessions={sessions}
         calls={calls}
+        sessionsLoading={sessionsLoading}
         onSelectPersona={handleSelectPersona}
         onEditPersona={handleEditPersona}
         onNewPersona={handleNewPersona}
@@ -165,10 +168,14 @@ export function App() {
         onSelectCall={handleSelectCall}
         onOpenAdmin={handleOpenAdmin}
       >
-        {/* Settings — hidden when connected */}
-        {!isConnected && <SettingsPanel />}
+        {/* Settings — animated out when connecting/connected */}
+        {!isConnected && !isConnecting && (
+          <div className="mb-6 transition-all duration-500 animate-in fade-in slide-in-from-top-2">
+            <SettingsPanel />
+          </div>
+        )}
 
-        {/* Conversation */}
+        {/* Conversation — fills remaining space */}
         <ConversationView
           onSavePersona={handleNewPersona}
           onSessionEnd={handleSessionEnd}
