@@ -66,7 +66,7 @@ export function MainLayout({
       </Sheet>
 
       {/* Main area */}
-      <main className="flex flex-1 flex-col overflow-y-auto">
+      <main className="flex flex-1 flex-col overflow-y-auto" aria-label="Conversation area">
         {/* Header */}
         <div className="sticky top-0 z-10 border-b border-border bg-background/80 px-4 py-3 backdrop-blur-sm">
           <div className="mx-auto flex max-w-xl items-center">
@@ -75,18 +75,19 @@ export function MainLayout({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="mr-2 md:hidden"
+                  className="mr-2 min-h-[44px] min-w-[44px] md:hidden"
+                  aria-label="Open sidebar menu"
                 >
-                  <Menu className="size-4" />
+                  <Menu className="size-5" />
                 </Button>
               </SheetTrigger>
             </Sheet>
             <div className="flex items-center gap-2">
-              <Mic className="size-4 text-primary" />
+              <Mic className="size-4 text-primary" aria-hidden="true" />
               <h1 className="text-lg font-semibold">Gemini Live</h1>
             </div>
             {config.data?.model && (
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground/50">
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">
                 {config.data.model}
               </span>
             )}

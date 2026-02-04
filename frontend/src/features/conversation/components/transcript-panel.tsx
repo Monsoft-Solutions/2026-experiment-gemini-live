@@ -15,7 +15,12 @@ export function TranscriptPanel() {
 
   return (
     <ScrollArea className="mt-4 max-h-[300px] w-full rounded-lg border border-border">
-      <div className="space-y-1.5 p-3">
+      <div
+        role="log"
+        aria-label="Conversation transcript"
+        aria-live="polite"
+        className="space-y-1.5 p-3"
+      >
         {transcript.map((entry) => (
           <div
             key={entry.id}

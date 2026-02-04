@@ -19,7 +19,7 @@ export function SessionList({
   }
 
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="flex flex-col gap-0.5" role="list" aria-label="Session history">
       {sessions.map((s) => {
         const date = new Date(s.startedAt);
         const provTag =
@@ -34,11 +34,12 @@ export function SessionList({
         return (
           <button
             key={s._id}
+            role="listitem"
             onClick={() => onSelect(s)}
-            className="flex items-center justify-between rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex min-h-[44px] items-center justify-between rounded-md px-2.5 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <span className="truncate">{label}</span>
-            <span className="ml-2 shrink-0 text-[10px] text-muted-foreground/60">
+            <span className="ml-2 shrink-0 text-[10px] text-muted-foreground">
               {date.toLocaleDateString()} · {dur}
             </span>
           </button>
