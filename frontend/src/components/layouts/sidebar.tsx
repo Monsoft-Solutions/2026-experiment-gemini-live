@@ -35,10 +35,13 @@ export function Sidebar({
   onOpenAdmin,
 }: SidebarProps) {
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-card">
+    <aside
+      className="flex w-64 shrink-0 flex-col border-r border-border bg-card"
+      aria-label="Sidebar navigation"
+    >
       <ScrollArea className="flex-1">
         {/* Personas */}
-        <div className="p-3">
+        <nav className="p-3" aria-label="Personas">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Personas
@@ -46,10 +49,11 @@ export function Sidebar({
             <Button
               variant="ghost"
               size="icon"
-              className="size-6"
+              className="size-8 min-h-[44px] min-w-[44px]"
               onClick={onNewPersona}
+              aria-label="Create new persona"
             >
-              <Plus className="size-3.5" />
+              <Plus className="size-4" />
             </Button>
           </div>
           <PersonaList
@@ -59,12 +63,12 @@ export function Sidebar({
             onSelect={onSelectPersona}
             onDoubleClick={onEditPersona}
           />
-        </div>
+        </nav>
 
         <Separator />
 
         {/* History */}
-        <div className="p-3">
+        <nav className="p-3" aria-label="Session history">
           <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             History
           </h3>
@@ -73,17 +77,17 @@ export function Sidebar({
             providers={providers}
             onSelect={onSelectSession}
           />
-        </div>
+        </nav>
 
         <Separator />
 
         {/* Phone Calls */}
-        <div className="p-3">
+        <nav className="p-3" aria-label="Phone calls">
           <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             📞 Phone Calls
           </h3>
           <CallHistoryList calls={calls} onSelect={onSelectCall} />
-        </div>
+        </nav>
       </ScrollArea>
 
       {/* Footer */}
@@ -92,9 +96,10 @@ export function Sidebar({
           variant="ghost"
           size="sm"
           onClick={onOpenAdmin}
-          className="w-full justify-start gap-2 text-muted-foreground"
+          className="min-h-[44px] w-full justify-start gap-2 text-muted-foreground"
+          aria-label="Open admin settings"
         >
-          <Settings className="size-3.5" />
+          <Settings className="size-4" />
           Admin
         </Button>
       </div>
