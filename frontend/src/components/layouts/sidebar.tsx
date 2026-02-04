@@ -2,6 +2,7 @@ import { Plus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import type { CallRecord, Persona, ProviderConfig, Session } from "@/types";
 import { CallHistoryList } from "@/features/admin/components/call-history-list";
 import { PersonaList } from "@/features/personas/components/persona-list";
@@ -40,7 +41,10 @@ export function Sidebar({
 }: SidebarProps) {
   return (
     <aside
-      className="flex w-64 shrink-0 flex-col border-r border-border bg-card"
+      className={cn(
+        "flex w-64 shrink-0 flex-col border-r border-border bg-card",
+        "shadow-[2px_0_8px_rgba(0,0,0,0.08)] dark:shadow-[2px_0_8px_rgba(0,0,0,0.3)]",
+      )}
       aria-label="Sidebar navigation"
     >
       <ScrollArea className="flex-1">

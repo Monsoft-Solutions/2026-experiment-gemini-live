@@ -43,14 +43,14 @@ export function ConversationView({
     <div className="flex flex-1 flex-col items-center">
       {/* Welcome hero — only visible on idle with no transcript history */}
       {isIdle && (
-        <div className="transition-all duration-500 animate-in fade-in slide-in-from-bottom-2">
+        <div className="transition-all duration-500 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2">
           <WelcomeHero />
         </div>
       )}
 
       {/* Connected state: active session info */}
       {isConnected && (
-        <div className="mb-4 transition-all duration-300 animate-in fade-in">
+        <div className="mb-4 transition-all duration-300 motion-safe:animate-in motion-safe:fade-in">
           <ActiveSessionInfo
             personaName={activePersonaName}
             providerName={providerName}
@@ -72,14 +72,14 @@ export function ConversationView({
 
       {/* Text input — connected only */}
       {isConnected && (
-        <div className="w-full max-w-md transition-all duration-300 animate-in fade-in slide-in-from-bottom-2">
+        <div className="w-full max-w-md transition-all duration-300 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2">
           <TextInput onSend={sendText} />
         </div>
       )}
 
       {/* Save Persona button — visible when idle */}
       {isIdle && (
-        <div className="mt-3 transition-all duration-300 animate-in fade-in">
+        <div className="mt-3 transition-all duration-300 motion-safe:animate-in motion-safe:fade-in">
           <Button
             variant="outline"
             size="sm"

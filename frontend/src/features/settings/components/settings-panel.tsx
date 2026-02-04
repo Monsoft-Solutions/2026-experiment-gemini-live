@@ -1,5 +1,12 @@
 import { useEffect } from "react";
+import { Info } from "lucide-react";
 import { Label } from "@/components/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -40,7 +47,7 @@ export function SettingsPanel() {
   }
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-card p-4 transition-all duration-300 animate-in fade-in">
+    <div className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm transition-all duration-300 motion-safe:animate-in motion-safe:fade-in dark:shadow-black/20">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {/* Provider */}
         <div className="space-y-1.5">
@@ -119,41 +126,67 @@ export function SettingsPanel() {
 
       {/* Toggles — Gemini only */}
       {isGemini && (
-        <div className="flex flex-wrap gap-4">
-          <div className="flex items-center gap-2">
-            <Switch
-              checked={settings.affectiveDialog}
-              onCheckedChange={settings.setAffectiveDialog}
-              id="affective"
-            />
-            <Label htmlFor="affective" className="text-sm text-muted-foreground">
-              Affective Dialog
-            </Label>
+        <TooltipProvider delayDuration={300}>
+          <div className="flex flex-wrap gap-4">
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={settings.affectiveDialog}
+                onCheckedChange={settings.setAffectiveDialog}
+                id="affective"
+              />
+              <Label htmlFor="affective" className="text-sm text-muted-foreground">
+                Affective Dialog
+              </Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="size-3.5 cursor-help text-muted-foreground/60 transition-colors duration-150 hover:text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[220px]">
+                  <p>Enables emotionally aware responses that adapt to your tone</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={settings.proactiveAudio}
+                onCheckedChange={settings.setProactiveAudio}
+                id="proactive"
+              />
+              <Label htmlFor="proactive" className="text-sm text-muted-foreground">
+                Proactive Audio
+              </Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="size-3.5 cursor-help text-muted-foreground/60 transition-colors duration-150 hover:text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[220px]">
+                  <p>AI may speak up proactively without waiting for your input</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={settings.googleSearch}
+                onCheckedChange={settings.setGoogleSearch}
+                id="google-search"
+              />
+              <Label
+                htmlFor="google-search"
+                className="text-sm text-muted-foreground"
+              >
+                Google Search
+              </Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="size-3.5 cursor-help text-muted-foreground/60 transition-colors duration-150 hover:text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[220px]">
+                  <p>Allows the AI to search Google for real-time information</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Switch
-              checked={settings.proactiveAudio}
-              onCheckedChange={settings.setProactiveAudio}
-              id="proactive"
-            />
-            <Label htmlFor="proactive" className="text-sm text-muted-foreground">
-              Proactive Audio
-            </Label>
-          </div>
-          <div className="flex items-center gap-2">
-            <Switch
-              checked={settings.googleSearch}
-              onCheckedChange={settings.setGoogleSearch}
-              id="google-search"
-            />
-            <Label
-              htmlFor="google-search"
-              className="text-sm text-muted-foreground"
-            >
-              Google Search
-            </Label>
-          </div>
-        </div>
+        </TooltipProvider>
       )}
     </div>
   );

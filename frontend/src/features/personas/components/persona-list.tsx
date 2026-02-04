@@ -1,4 +1,4 @@
-import { UserPlus } from "lucide-react";
+import { Pencil, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PersonaListSkeleton } from "@/components/shared/skeletons";
 import type { Persona, ProviderConfig } from "@/types";
@@ -44,23 +44,37 @@ export function PersonaList({
         const meta = providerLabel ? `${providerLabel} · ${p.voice}` : p.voice;
 
         return (
-          <button
+          <div
             key={p._id}
             role="option"
             aria-selected={activeId === p._id}
-            onClick={() => onSelect(p)}
-            onDoubleClick={() => onDoubleClick(p)}
             className={cn(
-              "flex min-h-[44px] items-center justify-between rounded-md px-2.5 py-2.5 text-left text-sm transition-colors",
+              "group flex min-h-[44px] items-center rounded-md text-left text-sm transition-all duration-150",
               "text-muted-foreground hover:bg-accent hover:text-foreground",
               activeId === p._id && "bg-primary/10 text-primary",
             )}
           >
-            <span className="truncate">{p.name}</span>
-            <span className="ml-2 shrink-0 text-[10px] text-muted-foreground">
-              {meta}
-            </span>
-          </button>
+            <button
+              onClick={() => onSelect(p)}
+              onDoubleClick={() => onDoubleClick(p)}
+              className="flex flex-1 items-center justify-between px-2.5 py-2.5"
+            >
+              <span className="truncate">{p.name}</span>
+              <span className="ml-2 shrink-0 text-[10px] text-muted-foreground">
+                {meta}
+              </span>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDoubleClick(p);
+              }}
+              className="mr-1 rounded p-1 opacity-0 transition-opacity duration-150 hover:bg-accent group-hover:opacity-100"
+              aria-label={`Edit ${p.name}`}
+            >
+              <Pencil className="size-3 text-muted-foreground" />
+            </button>
+          </div>
         );
       })}
     </div>

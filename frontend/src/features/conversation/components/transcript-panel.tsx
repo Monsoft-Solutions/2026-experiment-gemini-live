@@ -46,7 +46,7 @@ export function TranscriptPanel({ providerName }: TranscriptPanelProps) {
           <div
             key={entry.id}
             className={cn(
-              "rounded-md px-3 py-2 text-sm transition-all duration-200",
+              "rounded-md px-3 py-2 text-sm transition-all duration-200 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1",
               entry.role === "user" && "bg-blue-500/10 text-blue-400",
               entry.role === "gemini" && "bg-primary/10 text-primary",
               entry.role === "tool" &&
