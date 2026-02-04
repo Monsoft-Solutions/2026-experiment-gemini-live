@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gemini Live Voice</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar: Personas + History -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-header">
+          <h3>Personas</h3>
+          <button class="icon-btn" id="newPersonaBtn" title="New persona">+</button>
+        </div>
+        <div id="personaList" class="sidebar-list"></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-header">
+          <h3>History</h3>
+        </div>
+        <div id="historyList" class="sidebar-list"></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-header">
+          <h3>📞 Phone Calls</h3>
+        </div>
+        <div id="callHistoryList" class="sidebar-list"></div>
+      </div>
+      <div class="sidebar-footer">
+        <button class="btn-sm" id="adminBtn">⚙️ Admin</button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main">
+      <div class="header">
+        <button class="icon-btn sidebar-toggle" id="sidebarToggle">☰</button>
+        <h1>🎙️ Gemini Live</h1>
+        <div class="model" id="modelName"></div>
+      </div>
+
+      <!-- Settings Panel -->
+      <div class="settings" id="settingsPanel">
+        <div class="settings-grid">
+          <div class="setting-group">
+            <label>Provider</label>
+            <select id="providerSelect"></select>
+          </div>
+          <div class="setting-group">
+            <label>Voice</label>
+            <select id="voiceSelect"></select>
+          </div>
+          <div class="setting-group">
+            <label>Language</label>
+            <select id="langSelect"></select>
+          </div>
+        </div>
+        <div class="setting-group">
+          <label>System Prompt</label>
+          <textarea id="systemPrompt" placeholder="You are a helpful assistant..." rows="3"></textarea>
+        </div>
+        <div class="toggles">
+          <label class="toggle-item gemini-only">
+            <input type="checkbox" id="affectiveToggle" />
+            Affective Dialog
+          </label>
+          <label class="toggle-item gemini-only">
+            <input type="checkbox" id="proactiveToggle" />
+            Proactive Audio
+          </label>
+          <label class="toggle-item gemini-only">
+            <input type="checkbox" id="googleSearchToggle" />
+            Google Search
+          </label>
+        </div>
+        <div class="persona-actions">
+          <button class="btn-sm" id="savePersonaBtn">💾 Save Persona</button>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button id="talkBtn">Connect</button>
+        <div id="status"></div>
+        <div class="text-input-row" id="textInputRow">
+          <input type="text" id="textInput" placeholder="Type a message..." />
+          <button id="sendBtn">Send</button>
+        </div>
+      </div>
+
+      <!-- Transcript -->
+      <div id="transcript"></div>
+
+      <!-- History detail modal -->
+      <div class="modal-overlay" id="historyModal">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 id="modalTitle">Session</h3>
+            <button class="icon-btn" id="closeModal">✕</button>
+          </div>
+          <div class="modal-meta" id="modalMeta"></div>
+          <div class="modal-messages" id="modalMessages"></div>
+        </div>
+      </div>
+
+      <!-- Persona edit modal -->
+      <div class="modal-overlay" id="personaModal">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 id="personaModalTitle">Save Persona</h3>
+            <button class="icon-btn" id="closePersonaModal">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="setting-group">
+              <label>Persona Name</label>
+              <input type="text" id="personaNameInput" placeholder="e.g. Sales Assistant" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-sm danger" id="deletePersonaBtn" style="display:none">Delete</button>
+            <button class="btn-sm primary" id="confirmPersonaBtn">Save</button>
+          </div>
+        </div>
+      </div>
+      <!-- Admin modal -->
+      <div class="modal-overlay" id="adminModal">
+        <div class="modal modal-lg">
+          <div class="modal-header">
+            <h3>⚙️ Admin Settings</h3>
+            <button class="icon-btn" id="closeAdminModal">✕</button>
+          </div>
+          <div class="modal-body">
+            <!-- Twilio Config -->
+            <h4>Twilio Configuration</h4>
+            <div class="setting-group">
+              <label>Account SID</label>
+              <input type="text" id="twilioAccountSid" placeholder="AC..." />
+            </div>
+            <div class="setting-group">
+              <label>Auth Token</label>
+              <input type="password" id="twilioAuthToken" placeholder="Auth token" />
+            </div>
+            <div class="setting-group">
+              <label>Webhook Base URL</label>
+              <input type="text" id="twilioWebhookUrl" placeholder="https://your-domain.com" />
+            </div>
+            <button class="btn-sm primary" id="saveTwilioConfigBtn">Save Twilio Config</button>
+            <div id="twilioConfigStatus" class="meta" style="margin-top:8px"></div>
+
+            <hr style="margin:16px 0;border-color:#333" />
+
+            <!-- Phone Numbers -->
+            <h4>Phone Numbers</h4>
+            <div id="phoneNumbersList"></div>
+            <button class="btn-sm" id="refreshNumbersBtn" style="margin-top:8px">🔄 Refresh from Twilio</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Call detail modal -->
+      <div class="modal-overlay" id="callModal">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 id="callModalTitle">Call Detail</h3>
+            <button class="icon-btn" id="closeCallModal">✕</button>
+          </div>
+          <div class="modal-meta" id="callModalMeta"></div>
+          <div class="modal-messages" id="callModalMessages"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

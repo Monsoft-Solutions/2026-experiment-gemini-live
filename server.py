@@ -37,7 +37,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(twilio_router)
-app.mount("/static", StaticFiles(directory="frontend"), name="static")
+# Serve legacy frontend at /static and React build assets
+app.mount("/static", StaticFiles(directory="frontend-legacy"), name="static-legacy")
+app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
 # ---------- Built-in function calling tools ----------
 
@@ -169,7 +171,15 @@ CONVEX_URL = os.getenv("CONVEX_URL", "")
 
 @app.get("/")
 async def root():
-    return FileResponse("frontend/index.html")
+    return FileResponse("frontend/dist/index.html")
+
+@app.get("/pcm-processor.js")
+async def pcm_processor():
+    return FileResponse("frontend/dist/pcm-processor.js", media_type="application/javascript")
+
+@app.get("/legacy")
+async def legacy():
+    return FileResponse("frontend-legacy/index.html")
 
 
 @app.get("/convex-url")
