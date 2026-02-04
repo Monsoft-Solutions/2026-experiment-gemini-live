@@ -3,17 +3,19 @@ import { Menu, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useServerConfig } from "@/hooks/use-server-config";
-import type { Persona, Session } from "@/types";
+import type { CallRecord, Persona, Session } from "@/types";
 import { Sidebar } from "./sidebar";
 
 interface MainLayoutProps {
   personas: Persona[];
   activePersonaId: string | null;
   sessions: Session[];
+  calls: CallRecord[];
   onSelectPersona: (persona: Persona) => void;
   onEditPersona: (persona: Persona) => void;
   onNewPersona: () => void;
   onSelectSession: (session: Session) => void;
+  onSelectCall: (call: CallRecord) => void;
   onOpenAdmin: () => void;
   children: React.ReactNode;
 }
@@ -22,10 +24,12 @@ export function MainLayout({
   personas,
   activePersonaId,
   sessions,
+  calls,
   onSelectPersona,
   onEditPersona,
   onNewPersona,
   onSelectSession,
+  onSelectCall,
   onOpenAdmin,
   children,
 }: MainLayoutProps) {
@@ -39,10 +43,12 @@ export function MainLayout({
       activePersonaId={activePersonaId}
       providers={providers}
       sessions={sessions}
+      calls={calls}
       onSelectPersona={onSelectPersona}
       onEditPersona={onEditPersona}
       onNewPersona={onNewPersona}
       onSelectSession={onSelectSession}
+      onSelectCall={onSelectCall}
       onOpenAdmin={onOpenAdmin}
     />
   );

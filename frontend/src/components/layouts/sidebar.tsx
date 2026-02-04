@@ -2,7 +2,8 @@ import { Plus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import type { Persona, ProviderConfig, Session } from "@/types";
+import type { CallRecord, Persona, ProviderConfig, Session } from "@/types";
+import { CallHistoryList } from "@/features/admin/components/call-history-list";
 import { PersonaList } from "@/features/personas/components/persona-list";
 import { SessionList } from "@/features/sessions/components/session-list";
 
@@ -11,10 +12,12 @@ interface SidebarProps {
   activePersonaId: string | null;
   providers: Record<string, ProviderConfig>;
   sessions: Session[];
+  calls: CallRecord[];
   onSelectPersona: (persona: Persona) => void;
   onEditPersona: (persona: Persona) => void;
   onNewPersona: () => void;
   onSelectSession: (session: Session) => void;
+  onSelectCall: (call: CallRecord) => void;
   onOpenAdmin: () => void;
 }
 
@@ -23,10 +26,12 @@ export function Sidebar({
   activePersonaId,
   providers,
   sessions,
+  calls,
   onSelectPersona,
   onEditPersona,
   onNewPersona,
   onSelectSession,
+  onSelectCall,
   onOpenAdmin,
 }: SidebarProps) {
   return (
@@ -68,6 +73,16 @@ export function Sidebar({
             providers={providers}
             onSelect={onSelectSession}
           />
+        </div>
+
+        <Separator />
+
+        {/* Phone Calls */}
+        <div className="p-3">
+          <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            📞 Phone Calls
+          </h3>
+          <CallHistoryList calls={calls} onSelect={onSelectCall} />
         </div>
       </ScrollArea>
 

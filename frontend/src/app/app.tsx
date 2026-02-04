@@ -2,6 +2,9 @@ import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MainLayout } from "@/components/layouts/main-layout";
+import { AdminModal } from "@/features/admin/components/admin-modal";
+import { CallDetailModal } from "@/features/admin/components/call-detail-modal";
+import { useCallHistory } from "@/features/admin/api/use-twilio";
 import { ConversationView } from "@/features/conversation/components/conversation-view";
 import { useConversationStore } from "@/features/conversation/stores/conversation-store";
 import {
@@ -16,13 +19,14 @@ import { useSessions } from "@/features/sessions/api/use-sessions";
 import { SettingsPanel } from "@/features/settings/components/settings-panel";
 import { useSettingsStore } from "@/features/settings/stores/settings-store";
 import { useServerConfig } from "@/hooks/use-server-config";
-import type { Persona, Session } from "@/types";
+import type { CallRecord, Persona, Session } from "@/types";
 
 export function App() {
   const config = useServerConfig();
   const providers = config.data?.providers ?? {};
   const { data: personas = [] } = usePersonas();
   const { data: sessions = [] } = useSessions();
+  const { data: calls = [] } = useCallHistory();
   const queryClient = useQueryClient();
 
   const activePersonaId = useConversationStore((s) => s.activePersonaId);
@@ -43,6 +47,13 @@ export function App() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null,
   );
+
+  // Admin modal
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
+
+  // Call detail modal
+  const [callModalOpen, setCallModalOpen] = useState(false);
+  const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
 
   // --- Persona handlers ---
   const handleSelectPersona = useCallback(
@@ -67,7 +78,6 @@ export function App() {
   }, []);
 
   const handleNewPersona = useCallback(() => {
-    // If a persona is active, edit it; otherwise create new
     if (activePersonaId) {
       const active = personas.find((p) => p._id === activePersonaId);
       if (active) {
@@ -128,9 +138,15 @@ export function App() {
     queryClient.invalidateQueries({ queryKey: ["sessions"] });
   }, [queryClient]);
 
+  // --- Call handlers ---
+  const handleSelectCall = useCallback((call: CallRecord) => {
+    setSelectedCallId(call._id);
+    setCallModalOpen(true);
+  }, []);
+
   // --- Admin ---
   const handleOpenAdmin = useCallback(() => {
-    toast.info("Admin panel — coming soon to React!");
+    setAdminModalOpen(true);
   }, []);
 
   const isConnected = connectionStatus === "connected";
@@ -141,10 +157,12 @@ export function App() {
         personas={personas}
         activePersonaId={activePersonaId}
         sessions={sessions}
+        calls={calls}
         onSelectPersona={handleSelectPersona}
         onEditPersona={handleEditPersona}
         onNewPersona={handleNewPersona}
         onSelectSession={handleSelectSession}
+        onSelectCall={handleSelectCall}
         onOpenAdmin={handleOpenAdmin}
       >
         {/* Settings — hidden when connected */}
@@ -171,6 +189,18 @@ export function App() {
         open={sessionModalOpen}
         onOpenChange={setSessionModalOpen}
         providers={providers}
+      />
+
+      <AdminModal
+        open={adminModalOpen}
+        onOpenChange={setAdminModalOpen}
+        personas={personas}
+      />
+
+      <CallDetailModal
+        callId={selectedCallId}
+        open={callModalOpen}
+        onOpenChange={setCallModalOpen}
       />
     </>
   );
