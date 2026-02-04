@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from providers import get_all_providers, get_provider, init_providers
 from providers.base import EventType, ProviderConfig
+from twilio_integration.webhooks import router as twilio_router
 
 load_dotenv()
 
@@ -35,6 +36,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(twilio_router)
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 # ---------- Built-in function calling tools ----------
