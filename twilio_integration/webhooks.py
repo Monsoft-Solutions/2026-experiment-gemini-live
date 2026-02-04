@@ -117,7 +117,7 @@ async def twilio_voice(request: Request):
 
     # Build TwiML — connect Media Stream to our WebSocket
     twilio_config = await _get_twilio_config()
-    base_url = twilio_config.get("twilioWebhookBaseUrl", "") if twilio_config else ""
+    base_url = (twilio_config.get("twilioWebhookBaseUrl", "") if twilio_config else "").rstrip("/")
     ws_url = base_url.replace("https://", "wss://").replace("http://", "ws://")
     stream_url = f"{ws_url}/twilio/media-stream"
 
@@ -133,20 +133,15 @@ async def twilio_voice(request: Request):
 
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
     <Response>
-        <Start>
+        <Connect>
             <Stream url="{stream_url}">
                 {"".join(f'<Parameter name="{k}" value="{v}" />' for k, v in params.items())}
             </Stream>
-        </Start>
-        <Record
-            recordingStatusCallback="{status_callback}"
-            recordingStatusCallbackEvent="completed"
-            recordingStatusCallbackMethod="POST"
-            maxLength="3600"
-            trim="trim-silence"
-        />
-        <Pause length="3600"/>
+        </Connect>
     </Response>"""
+
+    # Start call recording via REST API (since <Connect> doesn't support inline <Record>)
+    asyncio.create_task(_start_call_recording(call_sid, status_callback))
 
     return Response(content=twiml, media_type="application/xml")
 
@@ -333,6 +328,33 @@ async def twilio_recording(request: Request):
     return Response(status_code=204)
 
 
+async def _start_call_recording(call_sid: str, status_callback: str):
+    """Start recording a call via Twilio REST API."""
+    try:
+        account_sid, auth_token = await _get_twilio_client()
+        if not account_sid or not auth_token:
+            return
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}"
+                f"/Calls/{call_sid}/Recordings.json",
+                auth=(account_sid, auth_token),
+                data={
+                    "RecordingStatusCallback": status_callback,
+                    "RecordingStatusCallbackEvent": "completed",
+                    "RecordingChannels": "dual",
+                },
+                timeout=10.0,
+            )
+            if resp.status_code in (200, 201):
+                logger.info(f"Recording started for call {call_sid}")
+            else:
+                logger.warning(f"Failed to start recording: {resp.status_code} {resp.text}")
+    except Exception as e:
+        logger.error(f"Error starting recording: {e}")
+
+
 async def _transcribe_recording(call_sid: str, recording_sid: str, recording_url: str):
     """Download recording from Twilio and transcribe it."""
     try:
@@ -477,7 +499,7 @@ async def link_number(request: Request):
 
     account_sid = twilio_config.get("twilioAccountSid")
     auth_token = twilio_config.get("twilioAuthToken")
-    base_url = twilio_config.get("twilioWebhookBaseUrl", "")
+    base_url = twilio_config.get("twilioWebhookBaseUrl", "").rstrip("/")
 
     voice_url = f"{base_url}/twilio/voice"
     status_url = f"{base_url}/twilio/status"
