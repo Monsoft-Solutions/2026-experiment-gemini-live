@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Menu, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { useServerConfig } from "@/hooks/use-server-config";
 import { useConversationStore } from "@/features/conversation/stores/conversation-store";
 import { cn } from "@/lib/utils";
@@ -109,11 +110,14 @@ export function MainLayout({
               />
               <h1 className="text-lg font-semibold">Gemini Live</h1>
             </div>
-            {config.data?.model && (
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                {config.data.model}
-              </span>
-            )}
+            <div className="ml-auto flex items-center gap-2">
+              {config.data?.model && (
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {config.data.model}
+                </span>
+              )}
+              <ThemeToggle />
+            </div>
           </div>
         </div>
 

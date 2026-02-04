@@ -1,9 +1,9 @@
-import { Mic } from "lucide-react";
+import { Keyboard, Mic } from "lucide-react";
 
 export function WelcomeHero() {
   return (
     <div className="flex flex-col items-center gap-4 py-4 text-center">
-      <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10">
+      <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 shadow-sm shadow-primary/10">
         <Mic className="size-8 text-primary" />
       </div>
       <div className="space-y-2">
@@ -13,6 +13,10 @@ export function WelcomeHero() {
         <p className="max-w-sm text-sm text-muted-foreground">
           Powered by AI. Configure your settings below, choose a persona from
           the sidebar, and press Connect to start talking.
+        </p>
+        <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground/70">
+          <Keyboard className="size-3" />
+          You can also type messages during a conversation
         </p>
       </div>
     </div>

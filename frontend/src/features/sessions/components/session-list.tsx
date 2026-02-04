@@ -50,7 +50,7 @@ export function SessionList({
             key={s._id}
             role="listitem"
             onClick={() => onSelect(s)}
-            className="flex min-h-[44px] items-center justify-between rounded-md px-2.5 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex min-h-[44px] items-center justify-between rounded-md px-2.5 py-2.5 text-left text-sm text-muted-foreground transition-all duration-150 hover:bg-accent hover:text-foreground"
           >
             <span className="truncate">{label}</span>
             <span className="ml-2 shrink-0 text-[10px] text-muted-foreground">
