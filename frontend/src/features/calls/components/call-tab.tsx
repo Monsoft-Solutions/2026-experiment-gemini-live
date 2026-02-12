@@ -1,16 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  ArrowUpRight,
+  Clock,
   Loader2,
   Phone,
   PhoneCall,
   PhoneOff,
+  RotateCcw,
   Timer,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -19,7 +24,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { Persona, PhoneNumber } from "@/types";
+import { useCallDetail, useCallHistory } from "@/features/admin/api/use-twilio";
+import type { CallRecord, Persona, PhoneNumber } from "@/types";
 import {
   useCallStatus,
   useHangupCall,
@@ -33,7 +39,35 @@ interface CallTabProps {
   phoneNumbersLoading: boolean;
 }
 
-type CallState = "idle" | "placing" | "ringing" | "connected" | "ended" | "error";
+type CallState =
+  | "idle"
+  | "confirm"
+  | "placing"
+  | "ringing"
+  | "connected"
+  | "ended"
+  | "error";
+
+/** Format a raw phone string for display (US numbers). */
+function formatPhoneDisplay(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `+1 (${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return raw;
+}
+
+/** Normalize input to E.164. */
+function toE164(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (raw.startsWith("+")) return raw.replace(/[^\d+]/g, "");
+  return `+${digits}`;
+}
 
 export function CallTab({
   personas,
@@ -48,21 +82,40 @@ export function CallTab({
   );
   const [callState, setCallState] = useState<CallState>("idle");
   const [activeCallSid, setActiveCallSid] = useState<string | null>(null);
+  const [activeCallConvexId, setActiveCallConvexId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [callSeconds, setCallSeconds] = useState(0);
 
   const placeCall = usePlaceCall();
   const hangupMutation = useHangupCall();
+  const { data: recentCalls = [] } = useCallHistory(10);
 
   // Poll call status while active
-  const isCallActive = callState === "placing" || callState === "ringing" || callState === "connected";
+  const isCallActive =
+    callState === "placing" ||
+    callState === "ringing" ||
+    callState === "connected";
   const { data: callStatus } = useCallStatus(activeCallSid, isCallActive);
+
+  // Poll live transcript during connected call (every 3s when active)
+  const { data: liveCallDetail } = useCallDetail(
+    activeCallConvexId,
+    isCallActive ? 3000 : undefined,
+  );
+  const liveMessages = liveCallDetail?.messages ?? [];
+
+  // Derive recent outbound calls for quick redial
+  const recentOutbound = useMemo(
+    () =>
+      recentCalls
+        .filter((c: CallRecord) => c.to && c.to !== c.from)
+        .slice(0, 5),
+    [recentCalls],
+  );
 
   // Sync persona selection with active persona
   useEffect(() => {
-    if (activePersonaId) {
-      setSelectedPersonaId(activePersonaId);
-    }
+    if (activePersonaId) setSelectedPersonaId(activePersonaId);
   }, [activePersonaId]);
 
   // Auto-select first from number
@@ -82,15 +135,20 @@ export function CallTab({
     } else if (s === "in-progress") {
       setCallState("connected");
     } else if (
-      s === "completed" ||
-      s === "busy" ||
-      s === "no-answer" ||
-      s === "canceled" ||
-      s === "failed"
+      ["completed", "busy", "no-answer", "canceled", "failed"].includes(s)
     ) {
       setCallState("ended");
     }
   }, [callStatus]);
+
+  // Find Convex call ID for live transcript
+  useEffect(() => {
+    if (!activeCallSid || activeCallConvexId) return;
+    // The most recent call should be ours
+    if (recentCalls.length > 0) {
+      setActiveCallConvexId(recentCalls[0]._id);
+    }
+  }, [activeCallSid, activeCallConvexId, recentCalls]);
 
   // Timer
   useEffect(() => {
@@ -102,24 +160,30 @@ export function CallTab({
     return () => clearInterval(interval);
   }, [callState]);
 
-  const handlePlaceCall = useCallback(async () => {
+  const selectedPersona = personas.find((p) => p._id === selectedPersonaId);
+
+  const handleConfirmCall = useCallback(() => {
     if (!toNumber.trim() || !fromNumber || !selectedPersonaId) {
       toast.error("Please fill in all fields");
       return;
     }
+    setCallState("confirm");
+  }, [toNumber, fromNumber, selectedPersonaId]);
 
+  const handlePlaceCall = useCallback(async () => {
     setCallState("placing");
     setErrorMessage("");
+    setActiveCallConvexId(null);
 
+    const e164 = toE164(toNumber);
     try {
       const result = await placeCall.mutateAsync({
-        to: toNumber.trim(),
+        to: e164,
         from: fromNumber,
         personaId: selectedPersonaId,
       });
       setActiveCallSid(result.callSid);
       setCallState("ringing");
-      toast.success("Call placed");
     } catch (e) {
       setCallState("error");
       const msg = e instanceof Error ? e.message : "Failed to place call";
@@ -133,8 +197,7 @@ export function CallTab({
     try {
       await hangupMutation.mutateAsync(activeCallSid);
       setCallState("ended");
-      toast.success("Call ended");
-    } catch (e) {
+    } catch {
       toast.error("Failed to hang up");
     }
   }, [activeCallSid, hangupMutation]);
@@ -142,140 +205,203 @@ export function CallTab({
   const handleNewCall = useCallback(() => {
     setCallState("idle");
     setActiveCallSid(null);
+    setActiveCallConvexId(null);
     setCallSeconds(0);
     setErrorMessage("");
+  }, []);
+
+  const handleQuickDial = useCallback((call: CallRecord) => {
+    setToNumber(call.to);
+    setCallState("idle");
   }, []);
 
   const mins = Math.floor(callSeconds / 60);
   const secs = callSeconds % 60;
   const timerDisplay = `${mins}:${secs.toString().padStart(2, "0")}`;
 
-  const linkedNumbers = phoneNumbers.filter((n) => n.linked);
-  const availableNumbers = linkedNumbers.length > 0 ? linkedNumbers : phoneNumbers;
+  const availableNumbers =
+    phoneNumbers.length > 0 ? phoneNumbers : [];
 
   return (
     <div className="flex h-full flex-col">
-      {/* Idle / Setup state */}
+      {/* ─── Idle / Setup ─── */}
       {(callState === "idle" || callState === "error") && (
-        <div className="flex flex-1 flex-col gap-4 p-4">
-          <div className="flex flex-col items-center gap-2 py-2">
-            <div className="flex size-12 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/30">
-              <Phone className="size-5 text-muted-foreground/50" />
-            </div>
-            <p className="text-sm font-medium text-muted-foreground">
-              Place an outbound call
-            </p>
-          </div>
-
-          {/* To Number */}
-          <div className="space-y-1">
-            <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Call To
-            </Label>
-            <Input
-              value={toNumber}
-              onChange={(e) => setToNumber(e.target.value)}
-              placeholder="+1 (555) 123-4567"
-              className="h-9 font-mono"
-              type="tel"
-            />
-          </div>
-
-          {/* From Number */}
-          <div className="space-y-1">
-            <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              From (Your Twilio Number)
-            </Label>
-            {phoneNumbersLoading ? (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="size-3 animate-spin" />
-                Loading numbers...
+        <ScrollArea className="flex-1">
+          <div className="flex flex-col gap-4 p-4">
+            {/* Header */}
+            <div className="flex flex-col items-center gap-1 py-1">
+              <div className="flex size-11 items-center justify-center rounded-full bg-primary/10">
+                <Phone className="size-5 text-primary" />
               </div>
-            ) : availableNumbers.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No Twilio numbers available. Configure in Admin settings.
-              </p>
-            ) : (
-              <Select value={fromNumber} onValueChange={setFromNumber}>
-                <SelectTrigger className="h-9 font-mono text-xs">
-                  <SelectValue placeholder="Select a number" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableNumbers.map((n) => (
-                    <SelectItem key={n.twilioSid} value={n.phoneNumber}>
-                      {n.friendlyName
-                        ? `${n.friendlyName} (${n.phoneNumber})`
-                        : n.phoneNumber}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-
-          {/* Persona */}
-          <div className="space-y-1">
-            <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Agent Persona
-            </Label>
-            {personas.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                Create a persona first in the Configure tab.
-              </p>
-            ) : (
-              <Select
-                value={selectedPersonaId}
-                onValueChange={setSelectedPersonaId}
-              >
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Select a persona" />
-                </SelectTrigger>
-                <SelectContent>
-                  {personas.map((p) => (
-                    <SelectItem key={p._id} value={p._id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-
-          {/* Error */}
-          {callState === "error" && errorMessage && (
-            <div className="flex items-center gap-2 rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-400">
-              <AlertCircle className="size-3.5 shrink-0" />
-              {errorMessage}
+              <p className="text-sm font-medium">Place a Call</p>
             </div>
-          )}
 
-          {/* Place Call Button */}
-          <Button
-            onClick={handlePlaceCall}
-            disabled={
-              !toNumber.trim() ||
-              !fromNumber ||
-              !selectedPersonaId ||
-              placeCall.isPending
-            }
-            className="mt-2 gap-2"
-          >
-            {placeCall.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <PhoneCall className="size-4" />
+            {/* To Number */}
+            <div className="space-y-1">
+              <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Phone Number
+              </Label>
+              <Input
+                value={toNumber}
+                onChange={(e) => setToNumber(e.target.value)}
+                placeholder="+1 (305) 555-1234"
+                className="h-9 font-mono text-sm"
+                type="tel"
+              />
+            </div>
+
+            {/* From + Persona row */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  From
+                </Label>
+                {phoneNumbersLoading ? (
+                  <div className="flex h-9 items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="size-3 animate-spin" />
+                  </div>
+                ) : availableNumbers.length === 0 ? (
+                  <p className="py-2 text-[10px] text-muted-foreground">
+                    No numbers — configure in Admin
+                  </p>
+                ) : (
+                  <Select value={fromNumber} onValueChange={setFromNumber}>
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableNumbers.map((n) => (
+                        <SelectItem key={n.twilioSid} value={n.phoneNumber}>
+                          {n.friendlyName || formatPhoneDisplay(n.phoneNumber)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Agent
+                </Label>
+                {personas.length === 0 ? (
+                  <p className="py-2 text-[10px] text-muted-foreground">
+                    Create a persona first
+                  </p>
+                ) : (
+                  <Select
+                    value={selectedPersonaId}
+                    onValueChange={setSelectedPersonaId}
+                  >
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {personas.map((p) => (
+                        <SelectItem key={p._id} value={p._id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
+
+            {/* Error */}
+            {callState === "error" && errorMessage && (
+              <div className="flex items-center gap-2 rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                <AlertCircle className="size-3.5 shrink-0" />
+                {errorMessage}
+              </div>
             )}
-            {placeCall.isPending ? "Placing Call..." : "Place Call"}
-          </Button>
+
+            {/* Place Call Button */}
+            <Button
+              onClick={handleConfirmCall}
+              disabled={
+                !toNumber.trim() ||
+                !fromNumber ||
+                !selectedPersonaId ||
+                placeCall.isPending
+              }
+              className="gap-2"
+              size="lg"
+            >
+              <PhoneCall className="size-4" />
+              Place Call
+            </Button>
+
+            {/* Recent Calls */}
+            {recentOutbound.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Recent
+                </Label>
+                <div className="flex flex-col gap-0.5">
+                  {recentOutbound.map((c: CallRecord) => (
+                    <button
+                      key={c._id}
+                      onClick={() => handleQuickDial(c)}
+                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+                    >
+                      <ArrowUpRight className="size-3 shrink-0 text-primary/60" />
+                      <span className="flex-1 truncate font-mono">
+                        {formatPhoneDisplay(c.to)}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                        {c.personaName ?? "—"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      )}
+
+      {/* ─── Confirmation ─── */}
+      {callState === "confirm" && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-5 p-6">
+          <div className="flex size-14 items-center justify-center rounded-full bg-primary/10">
+            <PhoneCall className="size-6 text-primary" />
+          </div>
+          <div className="space-y-1 text-center">
+            <p className="text-sm font-medium">Confirm Call</p>
+            <p className="font-mono text-lg font-semibold">
+              {formatPhoneDisplay(toNumber)}
+            </p>
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <Badge variant="secondary" className="text-[10px]">
+                From: {formatPhoneDisplay(fromNumber)}
+              </Badge>
+              <Badge variant="outline" className="text-[10px]">
+                {selectedPersona?.name ?? "—"}
+              </Badge>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setCallState("idle")}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handlePlaceCall} className="gap-2">
+              <PhoneCall className="size-4" />
+              Call Now
+            </Button>
+          </div>
         </div>
       )}
 
-      {/* Active Call state */}
+      {/* ─── Active Call ─── */}
       {(callState === "ringing" ||
         callState === "placing" ||
         callState === "connected") && (
         <div className="flex flex-1 flex-col">
-          {/* Call Info Header */}
+          {/* Status bar */}
           <div className="flex items-center gap-3 border-b border-border px-4 py-3">
             <div className="relative flex items-center justify-center">
               {callState === "connected" ? (
@@ -287,7 +413,7 @@ export function CallTab({
                 <Loader2 className="size-4 animate-spin text-primary" />
               )}
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-medium">
                 {callState === "connected"
                   ? "Connected"
@@ -295,8 +421,13 @@ export function CallTab({
                     ? "Ringing..."
                     : "Placing call..."}
               </p>
-              <p className="font-mono text-xs text-muted-foreground">
-                {toNumber}
+              <p className="truncate font-mono text-xs text-muted-foreground">
+                {formatPhoneDisplay(toNumber)}
+                {selectedPersona && (
+                  <span className="ml-2 font-sans text-muted-foreground/60">
+                    · {selectedPersona.name}
+                  </span>
+                )}
               </p>
             </div>
             {callState === "connected" && (
@@ -317,51 +448,131 @@ export function CallTab({
             </Button>
           </div>
 
-          {/* Live Transcript (from Convex via call detail polling) */}
-          <div className="flex flex-1 items-center justify-center px-4 py-8 text-center">
-            <div className="space-y-2">
-              <PhoneCall
-                className={cn(
-                  "mx-auto size-10",
-                  callState === "connected"
-                    ? "text-green-500"
-                    : "text-primary motion-safe:animate-pulse",
-                )}
-              />
-              <p className="text-sm text-muted-foreground">
-                {callState === "connected"
-                  ? "Call in progress — transcript will appear in call history"
-                  : "Waiting for the call to be answered..."}
-              </p>
+          {/* Live Transcript */}
+          <ScrollArea className="flex-1">
+            <div className="space-y-1.5 p-4">
+              {liveMessages.length === 0 && (
+                <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+                  <PhoneCall
+                    className={cn(
+                      "size-8",
+                      callState === "connected"
+                        ? "text-green-500"
+                        : "text-primary motion-safe:animate-pulse",
+                    )}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {callState === "connected"
+                      ? "Conversation in progress..."
+                      : "Waiting for answer..."}
+                  </p>
+                </div>
+              )}
+              {liveMessages.map((m, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "rounded-md px-3 py-2 text-xs motion-safe:animate-in motion-safe:fade-in",
+                    m.role === "caller" &&
+                      "bg-yellow-500/10 text-yellow-400",
+                    m.role === "agent" &&
+                      "bg-primary/10 text-primary",
+                  )}
+                >
+                  <span className="font-medium">
+                    {m.role === "caller" ? "📞 Caller" : "🤖 Agent"}:{" "}
+                  </span>
+                  {m.text}
+                </div>
+              ))}
             </div>
-          </div>
+          </ScrollArea>
         </div>
       )}
 
-      {/* Ended state */}
+      {/* ─── Ended ─── */}
       {callState === "ended" && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-4">
-          <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-            <PhoneOff className="size-5 text-muted-foreground" />
-          </div>
-          <div className="text-center">
-            <p className="text-sm font-medium">Call Ended</p>
-            <p className="font-mono text-xs text-muted-foreground">{toNumber}</p>
-            {callSeconds > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Duration: {timerDisplay}
+        <div className="flex flex-1 flex-col">
+          {/* Summary */}
+          <div className="flex flex-col items-center gap-3 border-b border-border px-4 py-5">
+            <div className="flex size-11 items-center justify-center rounded-full bg-muted">
+              <PhoneOff className="size-5 text-muted-foreground" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-medium">Call Ended</p>
+              <p className="font-mono text-xs text-muted-foreground">
+                {formatPhoneDisplay(toNumber)}
               </p>
-            )}
-            {callStatus?.status && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Status: {callStatus.status}
-              </p>
-            )}
+              <div className="mt-1.5 flex items-center justify-center gap-2">
+                {callSeconds > 0 && (
+                  <Badge variant="secondary" className="gap-1 text-[10px]">
+                    <Clock className="size-2.5" />
+                    {timerDisplay}
+                  </Badge>
+                )}
+                {callStatus?.status && (
+                  <Badge
+                    variant={
+                      callStatus.status === "completed"
+                        ? "default"
+                        : "destructive"
+                    }
+                    className="text-[10px]"
+                  >
+                    {callStatus.status}
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNewCall}
+                className="gap-1.5"
+              >
+                <Phone className="size-3.5" />
+                New Call
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePlaceCall}
+                className="gap-1.5"
+              >
+                <RotateCcw className="size-3.5" />
+                Redial
+              </Button>
+            </div>
           </div>
-          <Button variant="outline" onClick={handleNewCall} className="gap-2">
-            <Phone className="size-4" />
-            New Call
-          </Button>
+
+          {/* Post-call transcript */}
+          {liveMessages.length > 0 && (
+            <ScrollArea className="flex-1">
+              <div className="space-y-1.5 p-4">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Transcript
+                </p>
+                {liveMessages.map((m, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      "rounded-md px-3 py-2 text-xs",
+                      m.role === "caller" &&
+                        "bg-yellow-500/10 text-yellow-400",
+                      m.role === "agent" &&
+                        "bg-primary/10 text-primary",
+                    )}
+                  >
+                    <span className="font-medium">
+                      {m.role === "caller" ? "📞 Caller" : "🤖 Agent"}:{" "}
+                    </span>
+                    {m.text}
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
         </div>
       )}
     </div>

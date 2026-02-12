@@ -142,6 +142,7 @@ export interface CallRecord {
   from: string;
   to: string;
   status: string;
+  direction?: string;
   personaName?: string;
   provider?: string;
   startedAt: number;
