@@ -66,3 +66,45 @@ export function getCallHistory(limit = 20): Promise<CallRecord[]> {
 export function getCallDetail(callId: string): Promise<CallDetail> {
   return fetchJson<CallDetail>(`/twilio/calls/${callId}`);
 }
+
+// --- Outbound Calls ---
+
+export interface OutboundCallRequest {
+  to: string;
+  from: string;
+  personaId: string;
+}
+
+export interface OutboundCallResponse {
+  callSid: string;
+  status: string;
+  to: string;
+  from: string;
+}
+
+export interface CallStatus {
+  callSid: string;
+  status: string;
+  duration: string | null;
+  direction: string;
+  to: string;
+  from: string;
+}
+
+export function placeOutboundCall(
+  data: OutboundCallRequest,
+): Promise<OutboundCallResponse> {
+  return fetchJson<OutboundCallResponse>("/twilio/calls/outbound", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function hangupCall(callSid: string): Promise<{ status: string }> {
+  return fetchJson(`/twilio/calls/${callSid}/hangup`, { method: "POST" });
+}
+
+export function getCallStatus(callSid: string): Promise<CallStatus> {
+  return fetchJson<CallStatus>(`/twilio/calls/${callSid}/status`);
+}
