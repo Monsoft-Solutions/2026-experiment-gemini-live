@@ -58,62 +58,105 @@ async def _get_twilio_client():
 
 @router.post("/voice")
 async def twilio_voice(request: Request):
-    """Handle incoming Twilio call — return TwiML to connect Media Stream."""
+    """Handle incoming or outbound Twilio call — return TwiML to connect Media Stream."""
     form = await request.form()
     to_number = form.get("To", "")
     from_number = form.get("From", "")
     call_sid = form.get("CallSid", "")
 
-    logger.info(f"Incoming call: {from_number} → {to_number} (CallSid={call_sid})")
+    # Check if this is an outbound call (persona passed via query param)
+    outbound_persona_id = request.query_params.get("personaId")
 
-    # Look up phone number → persona
     convex = get_convex()
-    phone_config = await convex.query(
-        "phoneNumbers:getByNumber", {"phoneNumber": to_number}
-    )
 
-    if not phone_config or not phone_config.get("isActive"):
-        logger.warning(f"No active config for number {to_number}")
-        twiml = """<?xml version="1.0" encoding="UTF-8"?>
-        <Response>
-            <Say>Sorry, this number is not configured. Goodbye.</Say>
-            <Hangup/>
-        </Response>"""
-        return Response(content=twiml, media_type="application/xml")
+    if outbound_persona_id:
+        # --- Outbound call ---
+        logger.info(f"Outbound call: {from_number} → {to_number} (CallSid={call_sid})")
 
-    persona = phone_config.get("persona")
-    if not persona:
-        twiml = """<?xml version="1.0" encoding="UTF-8"?>
-        <Response>
-            <Say>Sorry, the agent for this number is unavailable. Goodbye.</Say>
-            <Hangup/>
-        </Response>"""
-        return Response(content=twiml, media_type="application/xml")
+        persona = await convex.query("personas:get", {"id": outbound_persona_id})
+        if not persona:
+            twiml = """<?xml version="1.0" encoding="UTF-8"?>
+            <Response>
+                <Say>Sorry, the agent configuration could not be loaded.</Say>
+                <Hangup/>
+            </Response>"""
+            return Response(content=twiml, media_type="application/xml")
 
-    persona_id = phone_config.get("personaId")
-    phone_number_id = phone_config.get("_id")
-    provider_name = persona.get("provider", "gemini")
+        persona_id = outbound_persona_id
+        phone_number_id = None
+        provider_name = persona.get("provider", "gemini")
 
-    # Create call record in Convex
-    try:
-        await convex.mutation("calls:create", {
-            "phoneNumberId": phone_number_id,
-            "personaId": persona_id,
-            "twilioCallSid": call_sid,
-            "from": from_number,
-            "to": to_number,
-            "status": "in-progress",
-            "direction": "inbound",
-            "provider": provider_name,
-            "personaName": persona.get("name"),
-            "settings": {
-                "voice": persona.get("voice", ""),
-                "language": persona.get("language", "en-US"),
-                "systemPrompt": persona.get("systemPrompt", ""),
-            },
-        })
-    except Exception as e:
-        logger.error(f"Failed to create call record: {e}")
+        # Outbound call record may already exist (created by /calls/outbound endpoint)
+        existing = await convex.query("calls:getByCallSid", {"callSid": call_sid})
+        if not existing:
+            try:
+                await convex.mutation("calls:create", {
+                    "personaId": persona_id,
+                    "twilioCallSid": call_sid,
+                    "from": from_number,
+                    "to": to_number,
+                    "status": "in-progress",
+                    "direction": "outbound",
+                    "provider": provider_name,
+                    "personaName": persona.get("name"),
+                    "settings": {
+                        "voice": persona.get("voice", ""),
+                        "language": persona.get("language", "en-US"),
+                        "systemPrompt": persona.get("systemPrompt", ""),
+                    },
+                })
+            except Exception as e:
+                logger.error(f"Failed to create outbound call record: {e}")
+
+    else:
+        # --- Inbound call ---
+        logger.info(f"Incoming call: {from_number} → {to_number} (CallSid={call_sid})")
+
+        phone_config = await convex.query(
+            "phoneNumbers:getByNumber", {"phoneNumber": to_number}
+        )
+
+        if not phone_config or not phone_config.get("isActive"):
+            logger.warning(f"No active config for number {to_number}")
+            twiml = """<?xml version="1.0" encoding="UTF-8"?>
+            <Response>
+                <Say>Sorry, this number is not configured. Goodbye.</Say>
+                <Hangup/>
+            </Response>"""
+            return Response(content=twiml, media_type="application/xml")
+
+        persona = phone_config.get("persona")
+        if not persona:
+            twiml = """<?xml version="1.0" encoding="UTF-8"?>
+            <Response>
+                <Say>Sorry, the agent for this number is unavailable. Goodbye.</Say>
+                <Hangup/>
+            </Response>"""
+            return Response(content=twiml, media_type="application/xml")
+
+        persona_id = phone_config.get("personaId")
+        phone_number_id = phone_config.get("_id")
+        provider_name = persona.get("provider", "gemini")
+
+        try:
+            await convex.mutation("calls:create", {
+                "phoneNumberId": phone_number_id,
+                "personaId": persona_id,
+                "twilioCallSid": call_sid,
+                "from": from_number,
+                "to": to_number,
+                "status": "in-progress",
+                "direction": "inbound",
+                "provider": provider_name,
+                "personaName": persona.get("name"),
+                "settings": {
+                    "voice": persona.get("voice", ""),
+                    "language": persona.get("language", "en-US"),
+                    "systemPrompt": persona.get("systemPrompt", ""),
+                },
+            })
+        except Exception as e:
+            logger.error(f"Failed to create call record: {e}")
 
     # Build TwiML — connect Media Stream to our WebSocket
     twilio_config = await _get_twilio_config()
@@ -418,6 +461,178 @@ async def _transcribe_with_whisper(audio_data: bytes, api_key: str) -> str | Non
     except Exception as e:
         logger.error(f"Whisper transcription error: {e}")
         return None
+
+
+# ---------- Outbound Calls ----------
+
+
+@router.post("/calls/outbound")
+async def create_outbound_call(request: Request):
+    """Place an outbound call using a persona."""
+    data = await request.json()
+    to_number = data.get("to")
+    from_number = data.get("from")
+    persona_id = data.get("personaId")
+
+    if not to_number or not from_number or not persona_id:
+        return JSONResponse(
+            {"error": "to, from, and personaId are required"},
+            status_code=400,
+        )
+
+    # Validate persona exists
+    convex = get_convex()
+    persona = await convex.query("personas:get", {"id": persona_id})
+    if not persona:
+        return JSONResponse({"error": "Persona not found"}, status_code=404)
+
+    # Get Twilio credentials
+    account_sid, auth_token = await _get_twilio_client()
+    if not account_sid or not auth_token:
+        return JSONResponse(
+            {"error": "Twilio credentials not configured"},
+            status_code=400,
+        )
+
+    twilio_config = await _get_twilio_config()
+    base_url = (twilio_config.get("twilioWebhookBaseUrl", "") if twilio_config else "").rstrip("/")
+
+    if not base_url:
+        return JSONResponse(
+            {"error": "Twilio webhook base URL not configured"},
+            status_code=400,
+        )
+
+    voice_url = f"{base_url}/twilio/voice?personaId={persona_id}&direction=outbound"
+    status_url = f"{base_url}/twilio/status"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Calls.json",
+                auth=(account_sid, auth_token),
+                data={
+                    "To": to_number,
+                    "From": from_number,
+                    "Url": voice_url,
+                    "StatusCallback": status_url,
+                    "StatusCallbackEvent": "initiated ringing answered completed",
+                },
+                timeout=15.0,
+            )
+
+            if resp.status_code not in (200, 201):
+                try:
+                    error_body = resp.json()
+                except Exception:
+                    error_body = {"message": resp.text}
+                logger.error(f"Twilio create call error: {resp.status_code} {error_body}")
+                return JSONResponse(
+                    {"error": error_body.get("message", f"Twilio API error: {resp.status_code}")},
+                    status_code=500,
+                )
+
+            call_data = resp.json()
+            call_sid = call_data.get("sid", "")
+
+            logger.info(f"Outbound call created: {from_number} → {to_number} (CallSid={call_sid})")
+
+            # Create call record in Convex
+            provider_name = persona.get("provider", "gemini")
+            try:
+                await convex.mutation("calls:create", {
+                    "personaId": persona_id,
+                    "twilioCallSid": call_sid,
+                    "from": from_number,
+                    "to": to_number,
+                    "status": call_data.get("status", "queued"),
+                    "direction": "outbound",
+                    "provider": provider_name,
+                    "personaName": persona.get("name"),
+                    "settings": {
+                        "voice": persona.get("voice", ""),
+                        "language": persona.get("language", "en-US"),
+                        "systemPrompt": persona.get("systemPrompt", ""),
+                    },
+                })
+            except Exception as e:
+                logger.error(f"Failed to create outbound call record: {e}")
+
+            return {
+                "callSid": call_sid,
+                "status": call_data.get("status", "queued"),
+                "to": to_number,
+                "from": from_number,
+            }
+
+    except httpx.TimeoutException:
+        return JSONResponse({"error": "Twilio API timeout"}, status_code=504)
+    except Exception as e:
+        logger.error(f"Outbound call error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/calls/{call_sid}/hangup")
+async def hangup_call(call_sid: str):
+    """Hang up an active call."""
+    account_sid, auth_token = await _get_twilio_client()
+    if not account_sid or not auth_token:
+        return JSONResponse(
+            {"error": "Twilio credentials not configured"},
+            status_code=400,
+        )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Calls/{call_sid}.json",
+                auth=(account_sid, auth_token),
+                data={"Status": "completed"},
+                timeout=10.0,
+            )
+            if resp.status_code != 200:
+                return JSONResponse(
+                    {"error": f"Failed to hang up: {resp.status_code}"},
+                    status_code=500,
+                )
+            return {"status": "completed", "callSid": call_sid}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/calls/{call_sid}/status")
+async def get_call_status(call_sid: str):
+    """Get live status of a call from Twilio."""
+    account_sid, auth_token = await _get_twilio_client()
+    if not account_sid or not auth_token:
+        return JSONResponse(
+            {"error": "Twilio credentials not configured"},
+            status_code=400,
+        )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Calls/{call_sid}.json",
+                auth=(account_sid, auth_token),
+                timeout=10.0,
+            )
+            if resp.status_code != 200:
+                return JSONResponse(
+                    {"error": f"Twilio API error: {resp.status_code}"},
+                    status_code=500,
+                )
+            data = resp.json()
+            return {
+                "callSid": call_sid,
+                "status": data.get("status", "unknown"),
+                "duration": data.get("duration"),
+                "direction": data.get("direction"),
+                "to": data.get("to"),
+                "from": data.get("from_formatted") or data.get("from"),
+            }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ---------- Phone Number Management ----------

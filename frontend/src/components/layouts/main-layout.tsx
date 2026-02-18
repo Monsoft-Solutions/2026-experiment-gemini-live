@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Menu, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -45,6 +45,16 @@ export function MainLayout({
   const [mobileOpen, setMobileOpen] = useState(false);
   const connectionStatus = useConversationStore((s) => s.status);
   const isConnected = connectionStatus === "connected";
+  const mainRef = useRef<HTMLElement>(null);
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const handleScroll = () => setIsScrolled(el.scrollTop > 8);
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, []);
 
   const sidebarContent = (
     <Sidebar
@@ -77,17 +87,22 @@ export function MainLayout({
       </Sheet>
 
       {/* Main area */}
-      <main className="flex flex-1 flex-col overflow-y-auto" aria-label="Conversation area">
+      <main
+        ref={mainRef}
+        className="flex flex-1 flex-col overflow-y-auto"
+        aria-label="Persona editor"
+      >
         {/* Header */}
         <div
           className={cn(
-            "sticky top-0 z-10 border-b px-4 py-3 backdrop-blur-sm transition-colors duration-500",
+            "sticky top-0 z-10 border-b px-4 py-3 backdrop-blur-sm transition-all duration-300",
             isConnected
               ? "border-primary/30 bg-primary/5"
               : "border-border bg-background/80",
+            isScrolled && "shadow-md shadow-black/10",
           )}
         >
-          <div className="mx-auto flex max-w-xl items-center">
+          <div className="mx-auto flex max-w-2xl items-center">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
                 <Button
@@ -122,7 +137,7 @@ export function MainLayout({
         </div>
 
         {/* Content */}
-        <div className="mx-auto flex w-full max-w-xl flex-1 flex-col px-4 py-6">
+        <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 py-6">
           {children}
         </div>
       </main>

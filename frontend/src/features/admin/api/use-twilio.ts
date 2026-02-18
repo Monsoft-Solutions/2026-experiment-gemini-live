@@ -60,10 +60,11 @@ export function useCallHistory(limit = 20) {
   });
 }
 
-export function useCallDetail(callId: string | null) {
+export function useCallDetail(callId: string | null, pollInterval?: number) {
   return useQuery({
     queryKey: ["call-detail", callId],
     queryFn: () => getCallDetail(callId!),
     enabled: !!callId,
+    refetchInterval: pollInterval,
   });
 }
